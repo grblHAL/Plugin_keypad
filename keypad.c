@@ -161,11 +161,15 @@ static void keypad_process_keypress (sys_state_t state)
                 break;
 
             case CMD_FEED_HOLD_LEGACY:                  // Feed hold
-                hal.stream.enqueue_realtime_command(CMD_FEED_HOLD);
+                protocol_enqueue_realtime_command(CMD_FEED_HOLD);
+                break;
+
+            case CMD_OVERRIDE_FAN0_TOGGLE:              // Fan0 override
+                protocol_enqueue_realtime_command(CMD_OVERRIDE_FAN0_TOGGLE);
                 break;
 
             case CMD_CYCLE_START_LEGACY:                // Cycle start
-                hal.stream.enqueue_realtime_command(CMD_CYCLE_START);
+                protocol_enqueue_realtime_command(CMD_CYCLE_START);
                 break;
 
             case '0':
@@ -276,7 +280,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.00]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.10]"  ASCII_EOL);
 }
 
 bool keypad_init (void)
@@ -300,6 +304,27 @@ ISR_CODE void keypad_enqueue_keycode (char c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
 
+    if(c == CMD_JOG_CANCEL || c == ASCII_CAN) {
+        keyreleased = true;
+        if(jogging) {
+            jogging = false;
+            protocol_enqueue_realtime_command(CMD_JOG_CANCEL);
+        }
+        keybuf.tail = keybuf.head; // Flush keycode buffer.
+    } else if(bptr != keybuf.tail) {    // If not buffer full
+        keybuf.buf[keybuf.head] = c;    // add data to buffer
+        keybuf.head = bptr;             // and update pointer.
+        keyreleased = false;
+        // Tell foreground process to process keycode
+        if(nvs_address != 0)
+            protocol_enqueue_rt_command(keypad_process_keypress);
+    }
+}
+
+ISR_CODE static void i2c_enqueue_keycode (char c)
+{
+    uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
+
     if(bptr != keybuf.tail) {           // If not buffer full
         keybuf.buf[keybuf.head] = c;    // add data to buffer
         keybuf.head = bptr;             // and update pointer
@@ -314,11 +339,11 @@ ISR_CODE void keypad_keyclick_handler (bool keydown)
     keyreleased = !keydown;
 
     if(keydown)
-        I2C_GetKeycode(KEYPAD_I2CADDR, keypad_enqueue_keycode);
+        I2C_GetKeycode(KEYPAD_I2CADDR, i2c_enqueue_keycode);
 
     else if(jogging) {
         jogging = false;
-        hal.stream.enqueue_realtime_command(CMD_JOG_CANCEL);
+        protocol_enqueue_realtime_command(CMD_JOG_CANCEL);
         keybuf.tail = keybuf.head; // flush keycode buffer
     }
 }
