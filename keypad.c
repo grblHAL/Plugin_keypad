@@ -72,6 +72,19 @@ static const setting_detail_t keypad_settings[] = {
     { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL }
 };
 
+#ifndef NO_SETTINGS_DESCRIPTIONS
+
+static const setting_descr_t keypad_settings_descr[] = {
+    { Setting_JogStepSpeed, "Step jogging speed in millimeters per minute." },
+    { Setting_JogSlowSpeed, "Slow jogging speed in millimeters per minute." },
+    { Setting_JogFastSpeed, "Fast jogging speed in millimeters per minute." },
+    { Setting_JogStepDistance, "Jog distance for single step jogging." },
+    { Setting_JogSlowDistance, "Jog distance before automatic stop." },
+    { Setting_JogFastDistance, "Jog distance before automatic stop." }
+};
+
+#endif
+
 static void keypad_settings_save (void)
 {
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
@@ -98,6 +111,10 @@ static void keypad_settings_load (void)
 static setting_details_t details = {
     .settings = keypad_settings,
     .n_settings = sizeof(keypad_settings) / sizeof(setting_detail_t),
+#ifndef NO_SETTINGS_DESCRIPTIONS
+    .descriptions = keypad_settings_descr,
+    .n_descriptions = sizeof(keypad_settings_descr) / sizeof(setting_descr_t),
+#endif
     .load = keypad_settings_load,
     .restore = keypad_settings_restore,
     .save = keypad_settings_save
