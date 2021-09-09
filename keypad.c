@@ -178,15 +178,15 @@ static void keypad_process_keypress (sys_state_t state)
                 break;
 
             case CMD_FEED_HOLD_LEGACY:                  // Feed hold
-                protocol_enqueue_realtime_command(CMD_FEED_HOLD);
+                grbl.enqueue_realtime_command(CMD_FEED_HOLD);
                 break;
 
             case CMD_OVERRIDE_FAN0_TOGGLE:              // Fan0 override
-                protocol_enqueue_realtime_command(CMD_OVERRIDE_FAN0_TOGGLE);
+                grbl.enqueue_realtime_command(CMD_OVERRIDE_FAN0_TOGGLE);
                 break;
 
             case CMD_CYCLE_START_LEGACY:                // Cycle start
-                protocol_enqueue_realtime_command(CMD_CYCLE_START);
+                grbl.enqueue_realtime_command(CMD_CYCLE_START);
                 break;
 
             case '0':
@@ -285,7 +285,7 @@ static void keypad_process_keypress (sys_state_t state)
             }
 
             if(!(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!
-                addedGcode = grbl.protocol_enqueue_gcode((char *)command);
+                addedGcode = grbl.enqueue_gcode((char *)command);
                 jogging = jogging || (jogCommand && addedGcode);
             }
         }
@@ -297,7 +297,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.10]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.11]"  ASCII_EOL);
 }
 
 bool keypad_init (void)
@@ -325,7 +325,7 @@ ISR_CODE void keypad_enqueue_keycode (char c)
         keyreleased = true;
         if(jogging) {
             jogging = false;
-            protocol_enqueue_realtime_command(CMD_JOG_CANCEL);
+            grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
         }
         keybuf.tail = keybuf.head; // Flush keycode buffer.
     } else if(bptr != keybuf.tail) {    // If not buffer full
@@ -360,7 +360,7 @@ ISR_CODE void keypad_keyclick_handler (bool keydown)
 
     else if(jogging) {
         jogging = false;
-        protocol_enqueue_realtime_command(CMD_JOG_CANCEL);
+        grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
         keybuf.tail = keybuf.head; // flush keycode buffer
     }
 }
