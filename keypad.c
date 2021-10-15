@@ -154,10 +154,15 @@ static char *strrepl (char *str, int c, char *str3)
     return str;
 }
 
+static void jog_command (char *cmd, char *to)
+{
+    strcat(strcpy(cmd, "$J=G91G21"), to);
+}
+
 static void keypad_process_keypress (sys_state_t state)
 {
     bool addedGcode, jogCommand = false;
-    char command[30] = "", keycode = keypad_get_keycode();
+    char command[35] = "", keycode = keypad_get_keycode();
 
     if(state == STATE_ESTOP)
         return;
@@ -206,59 +211,59 @@ static void keypad_process_keypress (sys_state_t state)
                 break;
 
             case JOG_XR:                                // Jog X
-                strcpy(command, "$J=G91X?F");
+                jog_command(command, "X?F");
                 break;
 
             case JOG_XL:                                // Jog -X
-                strcpy(command, "$J=G91X-?F");
+                jog_command(command, "X-?F");
                 break;
 
             case JOG_YF:                                // Jog Y
-                strcpy(command, "$J=G91Y?F");
+                jog_command(command, "Y?F");
                 break;
 
             case JOG_YB:                                // Jog -Y
-                strcpy(command, "$J=G91Y-?F");
+                jog_command(command, "1Y-?F");
                 break;
 
             case JOG_ZU:                                // Jog Z
-                strcpy(command, "$J=G91Z?F");
+                jog_command(command, "Z?F");
                 break;
 
             case JOG_ZD:                                // Jog -Z
-                strcpy(command, "$J=G91Z-?F");
+                jog_command(command, "Z-?F");
                 break;
 
             case JOG_XRYF:                              // Jog XY
-                strcpy(command, "$J=G91X?Y?F");
+                jog_command(command, "X?Y?F");
                 break;
 
             case JOG_XRYB:                              // Jog X-Y
-                strcpy(command, "$J=G91X?Y-?F");
+                jog_command(command, "X?Y-?F");
                 break;
 
             case JOG_XLYF:                              // Jog -XY
-                strcpy(command, "$J=G91X-?Y?F");
+                jog_command(command, "X-?Y?F");
                 break;
 
             case JOG_XLYB:                              // Jog -X-Y
-                strcpy(command, "$J=G91X-?Y-?F");
+                jog_command(command, "X-?Y-?F");
                 break;
 
             case JOG_XRZU:                              // Jog XZ
-                strcpy(command, "$J=G91X?Z?F");
+                jog_command(command, "X?Z?F");
                 break;
 
             case JOG_XRZD:                              // Jog X-Z
-                strcpy(command, "$J=G91X?Z-?F");
+                jog_command(command, "X?Z-?F");
                 break;
 
             case JOG_XLZU:                              // Jog -XZ
-                strcpy(command, "$J=G91X-?Z?F");
+                jog_command(command, "X-?Z?F");
                 break;
 
             case JOG_XLZD:                              // Jog -X-Z
-                strcpy(command, "$J=G91X-?Z-?F");
+                jog_command(command, "X-?Z-?F");
                 break;
         }
 
@@ -273,7 +278,7 @@ static void keypad_process_keypress (sys_state_t state)
                     break;
 
                 case JogMode_Step:
-                    strrepl(command, '?', ftoa(jog.step_distance, 3));
+                    strrepl(command, '?', ftoa(jog.step_distance, gc_state.modal.units_imperial ? 4 : 3));
                     strcat(command, ftoa(jog.step_speed, 0));
                     break;
 
@@ -281,7 +286,6 @@ static void keypad_process_keypress (sys_state_t state)
                     strrepl(command, '?', ftoa(jog.fast_distance, 0));
                     strcat(command, ftoa(jog.fast_speed, 0));
                     break;
-
             }
 
             if(!(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!
@@ -297,7 +301,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.11]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.20]"  ASCII_EOL);
 }
 
 bool keypad_init (void)
