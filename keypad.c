@@ -223,7 +223,7 @@ static void keypad_process_keypress (sys_state_t state)
                 break;
 
             case JOG_YB:                                // Jog -Y
-                jog_command(command, "1Y-?F");
+                jog_command(command, "Y-?F");
                 break;
 
             case JOG_ZU:                                // Jog Z
