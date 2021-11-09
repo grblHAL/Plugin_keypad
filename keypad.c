@@ -301,24 +301,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.20]"  ASCII_EOL);
-}
-
-bool keypad_init (void)
-{
-    if((nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
-
-        on_report_options = grbl.on_report_options;
-        grbl.on_report_options = onReportOptions;
-
-        details.on_get_settings = grbl.on_get_settings;
-        grbl.on_get_settings = onReportSettings;
-
-        if(keypad.on_jogmode_changed)
-            keypad.on_jogmode_changed(jogMode);
-    }
-
-    return nvs_address != 0;
+        hal.stream.write("[PLUGIN:KEYPAD v1.30]"  ASCII_EOL);
 }
 
 ISR_CODE void keypad_enqueue_keycode (char c)
@@ -342,6 +325,8 @@ ISR_CODE void keypad_enqueue_keycode (char c)
     }
 }
 
+#if KEYPAD_ENABLE == 1
+
 ISR_CODE static void i2c_enqueue_keycode (char c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
@@ -355,7 +340,7 @@ ISR_CODE static void i2c_enqueue_keycode (char c)
     }
 }
 
-ISR_CODE void keypad_keyclick_handler (bool keydown)
+ISR_CODE bool keypad_strobe_handler (uint_fast8_t id, bool keydown)
 {
     keyreleased = !keydown;
 
@@ -367,6 +352,46 @@ ISR_CODE void keypad_keyclick_handler (bool keydown)
         grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
         keybuf.tail = keybuf.head; // flush keycode buffer
     }
+
+    return true;
 }
+
+bool keypad_init (void)
+{
+    if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && (nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
+
+        on_report_options = grbl.on_report_options;
+        grbl.on_report_options = onReportOptions;
+
+        details.on_get_settings = grbl.on_get_settings;
+        grbl.on_get_settings = onReportSettings;
+
+        if(keypad.on_jogmode_changed)
+            keypad.on_jogmode_changed(jogMode);
+    }
+
+    return nvs_address != 0;
+}
+
+#else
+
+bool keypad_init (void)
+{
+    if((nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
+
+        on_report_options = grbl.on_report_options;
+        grbl.on_report_options = onReportOptions;
+
+        details.on_get_settings = grbl.on_get_settings;
+        grbl.on_get_settings = onReportSettings;
+
+        if(keypad.on_jogmode_changed)
+            keypad.on_jogmode_changed(jogMode);
+    }
+
+    return nvs_address != 0;
+}
+
+#endif
 
 #endif

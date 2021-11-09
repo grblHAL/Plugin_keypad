@@ -3,7 +3,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2017-2020 Terje Io
+  Copyright (c) 2017-2021 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -66,7 +66,6 @@ typedef struct {
 extern keypad_t keypad;
 
 bool keypad_init (void);
-void keypad_keyclick_handler (bool keydown);
 void keypad_enqueue_keycode (char c);
 
 #endif
