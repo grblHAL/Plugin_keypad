@@ -108,7 +108,7 @@ static void keypad_settings_load (void)
         keypad_settings_restore();
 }
 
-static setting_details_t details = {
+static setting_details_t setting_details = {
     .settings = keypad_settings,
     .n_settings = sizeof(keypad_settings) / sizeof(setting_detail_t),
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -119,11 +119,6 @@ static setting_details_t details = {
     .restore = keypad_settings_restore,
     .save = keypad_settings_save
 };
-
-static setting_details_t *onReportSettings (void)
-{
-    return &details;
-}
 
 // Returns 0 if no keycode enqueued
 static char keypad_get_keycode (void)
@@ -301,7 +296,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.30]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.31]"  ASCII_EOL);
 }
 
 ISR_CODE void keypad_enqueue_keycode (char c)
@@ -363,8 +358,7 @@ bool keypad_init (void)
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = onReportOptions;
 
-        details.on_get_settings = grbl.on_get_settings;
-        grbl.on_get_settings = onReportSettings;
+        settings_register(&setting_details);
 
         if(keypad.on_jogmode_changed)
             keypad.on_jogmode_changed(jogMode);
