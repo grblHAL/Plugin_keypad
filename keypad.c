@@ -189,6 +189,11 @@ static void keypad_process_keypress (sys_state_t state)
                 grbl.enqueue_realtime_command(CMD_CYCLE_START);
                 break;
 
+            case CMD_MPG_MODE_TOGGLE:                   // Toggle MPG mode
+                if(hal.driver_cap.mpg_mode)
+                    stream_mpg_enable(hal.stream.type != StreamType_MPG);
+                break;
+
             case '0':
             case '1':
             case '2':                                   // Set jog mode
@@ -296,10 +301,10 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.31]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.32]"  ASCII_EOL);
 }
 
-ISR_CODE void keypad_enqueue_keycode (char c)
+ISR_CODE bool keypad_enqueue_keycode (char c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
 
@@ -309,7 +314,7 @@ ISR_CODE void keypad_enqueue_keycode (char c)
             jogging = false;
             grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
         }
-        keybuf.tail = keybuf.head; // Flush keycode buffer.
+        keybuf.tail = keybuf.head;      // Flush keycode buffer.
     } else if(bptr != keybuf.tail) {    // If not buffer full
         keybuf.buf[keybuf.head] = c;    // add data to buffer
         keybuf.head = bptr;             // and update pointer.
@@ -318,6 +323,8 @@ ISR_CODE void keypad_enqueue_keycode (char c)
         if(nvs_address != 0)
             protocol_enqueue_rt_command(keypad_process_keypress);
     }
+
+    return true;
 }
 
 #if KEYPAD_ENABLE == 1
@@ -376,8 +383,7 @@ bool keypad_init (void)
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = onReportOptions;
 
-        details.on_get_settings = grbl.on_get_settings;
-        grbl.on_get_settings = onReportSettings;
+        settings_register(&setting_details);
 
         if(keypad.on_jogmode_changed)
             keypad.on_jogmode_changed(jogMode);

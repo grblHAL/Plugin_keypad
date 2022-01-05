@@ -66,6 +66,6 @@ typedef struct {
 extern keypad_t keypad;
 
 bool keypad_init (void);
-void keypad_enqueue_keycode (char c);
+bool keypad_enqueue_keycode (char c);
 
 #endif
