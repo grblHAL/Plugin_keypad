@@ -22,6 +22,13 @@ Character to action map:
 | `0x8A`   | Toggle Fan 0 output<sup>1</sup> |
 | `0x8B`   | Enable MPG full control<sup>2</sup> |
 | `0x85`   | Cancel jog motion<sup>3</sup> |
+| `0x90`   | Feed Override Reset         |
+| `0x91`   | Feed Override Coarse Up     |
+| `0x92`   | Feed Override Coarse Down   |
+| `0x99`   | Spindle Override Reset      |
+| `0x9A`   | Spindle Override Coarse Up  |
+| `0x9B`   | Spindle Override Coarse Down|
+| `0x9E`   | Spindle Toggle (Hold Only)  |
 | `0`      | Enable step mode jogging    |
 | `1`      | Enable slow jogging mode    |
 | `2`      | Enable fast jogging mode    |

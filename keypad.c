@@ -169,6 +169,29 @@ static void keypad_process_keypress (sys_state_t state)
 
         switch(keycode) {
 
+            case 0x91:                                   // Feed Override Coarse Up
+                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_PLUS);
+                break;            
+            case 0x92:                                   // Feed Override Coarse Down
+                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_MINUS);
+                break;   
+            case 0x90:                                   // Feed Override Reset
+                enqueue_feed_override(CMD_OVERRIDE_FEED_RESET);
+                break;                
+
+            case 0x9A:                                   // Spindle Override Coarse Up
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_PLUS);
+                break;            
+            case 0x9B:                                   // Spindle Override Coarse Down
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
+                break;   
+            case 0x99:                                   // Spindle Override Reset
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_RESET);
+                break;
+            case 0x9E:                                   // Spindle on/off Toggle
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_STOP);
+                break;                                   
+
             case 'M':                                   // Mist override
                 enqueue_accessory_override(CMD_OVERRIDE_COOLANT_MIST_TOGGLE);
                 break;
@@ -301,7 +324,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.32]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.33]"  ASCII_EOL);
 }
 
 ISR_CODE bool keypad_enqueue_keycode (char c)
