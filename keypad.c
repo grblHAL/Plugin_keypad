@@ -213,7 +213,7 @@ static void send_status_info (void)
     status_packet.spindle_override = sys.override.spindle_rpm;
     status_packet.spindle_stop = sys.override.spindle_stop.value;
     status_packet.alarm = (uint8_t) sys.alarm;
-    status_packet.home_state = (uint8_t)((sys.homing.mask & sys.homed.mask) == sys.homed.mask ? 1 : 0);
+    status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
 
     I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 0);
 }
@@ -443,6 +443,9 @@ ISR_CODE bool keypad_strobe_handler (uint_fast8_t id, bool keydown)
     else if(jogging) {
         jogging = false;
         grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
+        keybuf.tail = keybuf.head; // flush keycode buffer
+    }
+    else {
         keybuf.tail = keybuf.head; // flush keycode buffer
     }
 
