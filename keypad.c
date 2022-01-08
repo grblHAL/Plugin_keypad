@@ -57,11 +57,11 @@ typedef struct {
 static on_state_change_ptr on_state_change;
 static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
 
-#define SEND_STATUS_DELAY 1
+#define SEND_STATUS_DELAY 250
 
 typedef struct Machine_status_packet {
 uint8_t address;
-sys_state_t machine_state;
+uint8_t machine_state;
 uint8_t alarm;
 uint8_t home_state;
 uint8_t feed_override;
@@ -74,7 +74,8 @@ coolant_state_t coolant_state;
 static void status_loop_function (void);
 
 Machine_status_packet status_packet;
-char *status_ptr = &status_packet;
+
+char *status_ptr = (char*) &status_packet;
 
 static bool jogging = false, keyreleased = true;
 static jogmode_t jogMode = JogMode_Fast;
@@ -82,7 +83,7 @@ static jog_settings_t jog;
 static keybuffer_t keybuf = {0};
 static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
-static on_realtime_report_ptr on_realtime_report; 
+static on_realtime_report_ptr on_realtime_report;
 
 keypad_t keypad = {0};
 
@@ -178,10 +179,35 @@ static void jog_command (char *cmd, char *to)
 }
 
 static void send_status_info (void)
-{
-    status_packet.machine_state = state_get();
-
+{    
     status_packet.address = 0x01;
+    
+    switch (state_get()){
+        case STATE_ALARM || STATE_ESTOP:
+            status_packet.machine_state = 1;
+            break;
+        case STATE_CYCLE:
+            status_packet.machine_state = 2;
+            break;
+        case STATE_HOLD:
+            status_packet.machine_state = 3;
+            break;
+        case STATE_TOOL_CHANGE:
+            status_packet.machine_state = 4;
+            break;
+        case STATE_IDLE:
+            status_packet.machine_state = 5;
+            break;
+        case STATE_HOMING:
+            status_packet.machine_state = 6;
+            break;   
+        case STATE_JOG:
+            status_packet.machine_state = 7;
+            break;                                    
+        default :
+            status_packet.machine_state = 254;
+            break;                                                        
+    }
     status_packet.coolant_state = hal.coolant.get_state();
     status_packet.feed_override = sys.override.feed_rate;
     status_packet.spindle_override = sys.override.spindle_rpm;
@@ -208,7 +234,7 @@ static void keypad_process_keypress (sys_state_t state)
         switch(keycode) {
 
             case '?':                                    // Request status report.  Currently NOT the real-time status as we only want to send if a pendant is present and ready to receive.
-                hal.delay_ms(SEND_STATUS_DELAY, send_status_info);
+                hal.delay_ms(1, send_status_info);
                 break;  
 
             case 0x91:                                   // Feed Override Coarse Up
@@ -425,8 +451,14 @@ ISR_CODE bool keypad_strobe_handler (uint_fast8_t id, bool keydown)
 
 static void onStateChanged (sys_state_t state)
 {
-    //hal.delay_ms(SEND_STATUS_DLEAY,NULL);
+    //hal.delay_ms(SEND_STATUS_DELAY,NULL);
     send_status_info();
+}
+
+static void onRealtimeReport (sys_state_t state)
+{
+    hal.delay_ms(SEND_STATUS_DELAY,send_status_info);
+    //send_status_info();
 }
 
 bool keypad_init (void)
@@ -442,7 +474,10 @@ bool keypad_init (void)
             keypad.on_jogmode_changed(jogMode);
 
         on_state_change = grbl.on_state_change;             // Subscribe to the state changed event by saving away the original
-        grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.           
+        grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.
+
+        on_realtime_report = grbl.on_realtime_report;       // Subscribe to realtime report events AKA ? reports
+        grbl.on_realtime_report = onRealtimeReport;         // Nothing here yet           
     }   
 
     return nvs_address != 0;
