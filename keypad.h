@@ -32,6 +32,7 @@
 
 #define KEYBUF_SIZE 8 // must be a power of 2
 #define KEYPAD_I2CADDR 0x49
+#define STATUSDATA_SIZE 256
 
 #define JOG_XR   'R'
 #define JOG_XL   'L'

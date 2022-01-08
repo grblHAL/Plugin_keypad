@@ -54,12 +54,35 @@ typedef struct {
     volatile uint_fast8_t tail;
 } keybuffer_t;
 
+static on_state_change_ptr on_state_change;
+static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
+
+#define SEND_STATUS_DELAY 1
+
+typedef struct Machine_status_packet {
+uint8_t address;
+sys_state_t machine_state;
+uint8_t alarm;
+uint8_t home_state;
+uint8_t feed_override;
+uint8_t spindle_override;
+uint8_t spindle_stop;
+coolant_state_t coolant_state;
+
+} Machine_status_packet;
+
+static void status_loop_function (void);
+
+Machine_status_packet status_packet;
+char *status_ptr = &status_packet;
+
 static bool jogging = false, keyreleased = true;
 static jogmode_t jogMode = JogMode_Fast;
 static jog_settings_t jog;
 static keybuffer_t keybuf = {0};
 static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
+static on_realtime_report_ptr on_realtime_report; 
 
 keypad_t keypad = {0};
 
@@ -154,6 +177,21 @@ static void jog_command (char *cmd, char *to)
     strcat(strcpy(cmd, "$J=G91G21"), to);
 }
 
+static void send_status_info (void)
+{
+    status_packet.machine_state = state_get();
+
+    status_packet.address = 0x01;
+    status_packet.coolant_state = hal.coolant.get_state();
+    status_packet.feed_override = sys.override.feed_rate;
+    status_packet.spindle_override = sys.override.spindle_rpm;
+    status_packet.spindle_stop = sys.override.spindle_stop.value;
+    status_packet.alarm = (uint8_t) sys.alarm;
+    status_packet.home_state = (uint8_t)((sys.homing.mask & sys.homed.mask) == sys.homed.mask ? 1 : 0);
+
+    I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 0);
+}
+
 static void keypad_process_keypress (sys_state_t state)
 {
     bool addedGcode, jogCommand = false;
@@ -168,6 +206,10 @@ static void keypad_process_keypress (sys_state_t state)
             return;
 
         switch(keycode) {
+
+            case '?':                                    // Request status report.  Currently NOT the real-time status as we only want to send if a pendant is present and ready to receive.
+                hal.delay_ms(SEND_STATUS_DELAY, send_status_info);
+                break;  
 
             case 0x91:                                   // Feed Override Coarse Up
                 enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_PLUS);
@@ -324,7 +366,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.33]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.3 INTERTEST]"  ASCII_EOL);
 }
 
 ISR_CODE bool keypad_enqueue_keycode (char c)
@@ -381,6 +423,12 @@ ISR_CODE bool keypad_strobe_handler (uint_fast8_t id, bool keydown)
     return true;
 }
 
+static void onStateChanged (sys_state_t state)
+{
+    //hal.delay_ms(SEND_STATUS_DLEAY,NULL);
+    send_status_info();
+}
+
 bool keypad_init (void)
 {
     if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && (nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
@@ -392,7 +440,10 @@ bool keypad_init (void)
 
         if(keypad.on_jogmode_changed)
             keypad.on_jogmode_changed(jogMode);
-    }
+
+        on_state_change = grbl.on_state_change;             // Subscribe to the state changed event by saving away the original
+        grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.           
+    }   
 
     return nvs_address != 0;
 }
