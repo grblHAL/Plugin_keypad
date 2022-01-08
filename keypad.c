@@ -68,7 +68,7 @@ uint8_t feed_override;
 uint8_t spindle_override;
 uint8_t spindle_stop;
 coolant_state_t coolant_state;
-
+uint8_t jog_mode;
 } Machine_status_packet;
 
 static void status_loop_function (void);
@@ -183,9 +183,12 @@ static void send_status_info (void)
     status_packet.address = 0x01;
     
     switch (state_get()){
-        case STATE_ALARM || STATE_ESTOP:
+        case STATE_ALARM:
             status_packet.machine_state = 1;
             break;
+        case STATE_ESTOP:
+            status_packet.machine_state = 1;
+            break;            
         case STATE_CYCLE:
             status_packet.machine_state = 2;
             break;
@@ -214,6 +217,7 @@ static void send_status_info (void)
     status_packet.spindle_stop = sys.override.spindle_stop.value;
     status_packet.alarm = (uint8_t) sys.alarm;
     status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
+    status_packet.jog_mode = (uint8_t) jogMode;
 
     I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 0);
 }
@@ -454,7 +458,7 @@ ISR_CODE bool keypad_strobe_handler (uint_fast8_t id, bool keydown)
 
 static void onStateChanged (sys_state_t state)
 {
-    //hal.delay_ms(SEND_STATUS_DELAY,NULL);
+    hal.delay_ms(50,NULL);
     send_status_info();
 }
 
