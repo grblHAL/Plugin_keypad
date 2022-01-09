@@ -3,7 +3,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2017-2021 Terje Io
+  Copyright (c) 2017-2022 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -181,10 +181,6 @@ static void keypad_process_keypress (sys_state_t state)
                 grbl.enqueue_realtime_command(CMD_FEED_HOLD);
                 break;
 
-            case CMD_OVERRIDE_FAN0_TOGGLE:              // Fan0 override
-                grbl.enqueue_realtime_command(CMD_OVERRIDE_FAN0_TOGGLE);
-                break;
-
             case CMD_CYCLE_START_LEGACY:                // Cycle start
                 grbl.enqueue_realtime_command(CMD_CYCLE_START);
                 break;
@@ -209,6 +205,66 @@ static void keypad_process_keypress (sys_state_t state)
             case 'H':                                   // Home axes
                 strcpy(command, "$H");
                 break;
+
+         // Feed rate and spindle overrides
+
+             case 'I':                                   // Feed rate coarse override -10%
+                enqueue_feed_override(CMD_OVERRIDE_FEED_RESET);
+                break;
+
+            case 'i':                                   // Feed rate coarse override +10%
+                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_PLUS);
+                break;
+
+            case 'j':                                   // Feed rate fine override +1%
+                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_MINUS);
+                break;
+
+            case 'K':                                  // Spindle RPM coarse override -10%
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_RESET);
+                break;
+
+            case 'k':                                   // Spindle RPM coarse override +10%
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_PLUS);
+                break;
+
+            case 'z':                                   // Spindle RPM fine override +1%
+                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
+                break;
+
+         // Pass most of the top bit set commands trough unmodified
+
+            case CMD_OVERRIDE_FEED_RESET:
+            case CMD_OVERRIDE_FEED_COARSE_PLUS:
+            case CMD_OVERRIDE_FEED_COARSE_MINUS:
+            case CMD_OVERRIDE_FEED_FINE_PLUS:
+            case CMD_OVERRIDE_FEED_FINE_MINUS:
+            case CMD_OVERRIDE_RAPID_RESET:
+            case CMD_OVERRIDE_RAPID_MEDIUM:
+            case CMD_OVERRIDE_RAPID_LOW:
+                enqueue_feed_override(keycode);
+                break;
+
+            case CMD_OVERRIDE_FAN0_TOGGLE:
+            case CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE:
+            case CMD_OVERRIDE_COOLANT_MIST_TOGGLE:
+            case CMD_OVERRIDE_SPINDLE_RESET:
+            case CMD_OVERRIDE_SPINDLE_COARSE_PLUS:
+            case CMD_OVERRIDE_SPINDLE_COARSE_MINUS:
+            case CMD_OVERRIDE_SPINDLE_FINE_PLUS:
+            case CMD_OVERRIDE_SPINDLE_FINE_MINUS:
+            case CMD_OVERRIDE_SPINDLE_STOP:
+                enqueue_accessory_override(keycode);
+                break;
+
+            case CMD_SAFETY_DOOR:
+            case CMD_OPTIONAL_STOP_TOGGLE:
+            case CMD_SINGLE_BLOCK_TOGGLE:
+            case CMD_PROBE_CONNECTED_TOGGLE:
+                grbl.enqueue_realtime_command(keycode);
+                break;
+
+         // Jogging
 
             case JOG_XR:                                // Jog X
                 jog_command(command, "X?F");
