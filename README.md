@@ -1,5 +1,7 @@
 ## Keypad plugin
 
+**Modified for Interactive two-way control**
+
 This plugin can be used for jogging, controlling feedhold, cycle start etc. via single character commands.
 The command characters can be delivered either via an I2C or an UART port.
 
