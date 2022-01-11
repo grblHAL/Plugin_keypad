@@ -360,7 +360,7 @@ static void onReportOptions (bool newopt)
         hal.stream.write("[PLUGIN:KEYPAD v1.32]"  ASCII_EOL);
 }
 
-ISR_CODE bool keypad_enqueue_keycode (char c)
+ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
 
@@ -385,7 +385,7 @@ ISR_CODE bool keypad_enqueue_keycode (char c)
 
 #if KEYPAD_ENABLE == 1
 
-ISR_CODE static void i2c_enqueue_keycode (char c)
+ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
 
@@ -398,7 +398,7 @@ ISR_CODE static void i2c_enqueue_keycode (char c)
     }
 }
 
-ISR_CODE bool keypad_strobe_handler (uint_fast8_t id, bool keydown)
+ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 {
     keyreleased = !keydown;
 
