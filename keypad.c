@@ -357,12 +357,17 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.32]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.33]" ASCII_EOL);
 }
 
 ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
+
+#if MPG_MODE != 2
+    if(c == CMD_MPG_MODE_TOGGLE)
+        return true;
+#endif
 
     if(c == CMD_JOG_CANCEL || c == ASCII_CAN) {
         keyreleased = true;
