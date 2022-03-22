@@ -55,9 +55,9 @@ typedef struct {
 } keybuffer_t;
 
 static on_state_change_ptr on_state_change;
-static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
+//static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
 
-#define SEND_STATUS_DELAY 250
+#define SEND_STATUS_DELAY 25
 
 typedef struct Machine_status_packet {
 uint8_t address;
@@ -71,11 +71,11 @@ coolant_state_t coolant_state;
 uint8_t jog_mode;
 } Machine_status_packet;
 
-static void status_loop_function (void);
+//static void status_loop_function (void);
 
 Machine_status_packet status_packet;
 
-char *status_ptr = (char*) &status_packet;
+uint8_t *status_ptr = (uint8_t*) &status_packet;
 
 static bool jogging = false, keyreleased = true;
 static jogmode_t jogMode = JogMode_Fast;
@@ -239,32 +239,8 @@ static void keypad_process_keypress (sys_state_t state)
 
             case '?':                                    // Request status report.  Currently NOT the real-time status as we only want to send if a pendant is present and ready to receive.
                 hal.delay_ms(1, send_status_info);
-                break;  
-
-            case 0x91:                                   // Feed Override Coarse Up
-                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_PLUS);
-                break;            
-            case 0x92:                                   // Feed Override Coarse Down
-                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_MINUS);
-                break;   
-            case 0x90:                                   // Feed Override Reset
-                enqueue_feed_override(CMD_OVERRIDE_FEED_RESET);
-                break;                
-
-            case 0x9A:                                   // Spindle Override Coarse Up
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_PLUS);
-                break;            
-            case 0x9B:                                   // Spindle Override Coarse Down
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
-                break;   
-            case 0x99:                                   // Spindle Override Reset
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_RESET);
-                break;
-            case 0x9E:                                   // Spindle on/off Toggle
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_STOP);
-                break;                                   
-
-            case 'M':                                   // Mist override
+                break;                                       
+             case 'M':                                   // Mist override
                 enqueue_accessory_override(CMD_OVERRIDE_COOLANT_MIST_TOGGLE);
                 break;
 
@@ -299,32 +275,6 @@ static void keypad_process_keypress (sys_state_t state)
 
             case 'H':                                   // Home axes
                 strcpy(command, "$H");
-                break;
-
-         // Feed rate and spindle overrides
-
-             case 'I':                                   // Feed rate coarse override -10%
-                enqueue_feed_override(CMD_OVERRIDE_FEED_RESET);
-                break;
-
-            case 'i':                                   // Feed rate coarse override +10%
-                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_PLUS);
-                break;
-
-            case 'j':                                   // Feed rate fine override +1%
-                enqueue_feed_override(CMD_OVERRIDE_FEED_COARSE_MINUS);
-                break;
-
-            case 'K':                                  // Spindle RPM coarse override -10%
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_RESET);
-                break;
-
-            case 'k':                                   // Spindle RPM coarse override +10%
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_PLUS);
-                break;
-
-            case 'z':                                   // Spindle RPM fine override +1%
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
                 break;
 
          // Pass most of the top bit set commands trough unmodified
@@ -523,7 +473,7 @@ static void onStateChanged (sys_state_t state)
     send_status_info();
 }
 
-static void onRealtimeReport (sys_state_t state)
+static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_flags_t report)
 {
     hal.delay_ms(SEND_STATUS_DELAY,send_status_info);
     //send_status_info();
