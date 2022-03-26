@@ -54,10 +54,12 @@ typedef struct {
     volatile uint_fast8_t tail;
 } keybuffer_t;
 
+static char buf[(STRLEN_COORDVALUE + 1) * N_AXIS];
+
 static on_state_change_ptr on_state_change;
 //static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
 
-#define SEND_STATUS_DELAY 25
+#define SEND_STATUS_DELAY 250
 
 typedef struct Machine_status_packet {
 uint8_t address;
@@ -67,23 +69,34 @@ uint8_t home_state;
 uint8_t feed_override;
 uint8_t spindle_override;
 uint8_t spindle_stop;
+int spindle_rpm;
 coolant_state_t coolant_state;
-uint8_t jog_mode;
+uint8_t jog_mode;  //includes both modifier as well as mode
+float jog_stepsize;
+coord_system_id_t current_wcs;  //active WCS or MCS modal state
+float x_coordinate;
+float y_coordinate;
+float z_coordinate;
+float a_coordinate;
 } Machine_status_packet;
 
-//static void status_loop_function (void);
+static void send_status_info (void);
 
 Machine_status_packet status_packet;
 
 uint8_t *status_ptr = (uint8_t*) &status_packet;
-
-static bool jogging = false, keyreleased = true;
+static bool jogging = false, keyreleased = true, pendant_attached = false;
 static jogmode_t jogMode = JogMode_Fast;
+static jogmodify_t jogModify = JogModify_1;
 static jog_settings_t jog;
+static pendant_probe_settings_t pendant_probe;
 static keybuffer_t keybuf = {0};
 static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
+static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
 static on_realtime_report_ptr on_realtime_report;
+static on_jogmode_changed_ptr on_jogmode_changed;
+static on_jogmodify_changed_ptr on_jogmodify_changed;
 
 keypad_t keypad = {0};
 
@@ -93,7 +106,10 @@ static const setting_detail_t keypad_settings[] = {
     { Setting_JogFastSpeed, Group_Jogging, "Fast jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_speed, NULL, NULL },
     { Setting_JogStepDistance, Group_Jogging, "Step jog distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_NonCore, &jog.step_distance, NULL, NULL },
     { Setting_JogSlowDistance, Group_Jogging, "Slow jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_distance, NULL, NULL },
-    { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL }
+    { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL },
+    { Setting_UserDefined_0, Group_Probing, "Manual probe diameter", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &pendant_probe.xy_diameter, NULL, NULL },
+    { Setting_UserDefined_1, Group_Probing, "Manual probe height", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &pendant_probe.z_height, NULL, NULL },
+    { Setting_UserDefined_2, Group_Probing, "Manual probing RPM", "rpm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &pendant_probe.probe_rpm, NULL, NULL },
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -104,7 +120,10 @@ static const setting_descr_t keypad_settings_descr[] = {
     { Setting_JogFastSpeed, "Fast jogging speed in millimeters per minute." },
     { Setting_JogStepDistance, "Jog distance for single step jogging." },
     { Setting_JogSlowDistance, "Jog distance before automatic stop." },
-    { Setting_JogFastDistance, "Jog distance before automatic stop." }
+    { Setting_JogFastDistance, "Jog distance before automatic stop." },
+    { Setting_UserDefined_0, "Diameter of probe for manual probing" },
+    { Setting_UserDefined_1, "Height of Z probe during manual probing." },
+    { Setting_UserDefined_2, "Spindle RPM for probing/center-finding." },
 };
 
 #endif
@@ -122,6 +141,10 @@ static void keypad_settings_restore (void)
     jog.step_distance = 0.25f;
     jog.slow_distance = 500.0f;
     jog.fast_distance = 3000.0f;
+
+    pendant_probe.xy_diameter = 5.08f;
+    pendant_probe.z_height = 3.175f;
+    pendant_probe.probe_rpm = 1500.0f;
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
 }
@@ -173,6 +196,19 @@ static char *strrepl (char *str, int c, char *str3)
     return str;
 }
 
+static char *map_coord_system (coord_system_id_t id)
+{
+    uint8_t g5x = id + 54;
+
+    strcpy(buf, uitoa((uint32_t)(g5x > 59 ? 59 : g5x)));
+    if(g5x > 59) {
+        strcat(buf, ".");
+        strcat(buf, uitoa((uint32_t)(g5x - 59)));
+    }
+
+    return buf;
+}
+
 static void jog_command (char *cmd, char *to)
 {
     strcat(strcpy(cmd, "$J=G91G21"), to);
@@ -180,7 +216,36 @@ static void jog_command (char *cmd, char *to)
 
 static void send_status_info (void)
 {    
+    int32_t current_position[N_AXIS]; // Copy current state of the system position variable
+    float jog_modifier = 0;
+    float print_position[N_AXIS];
+    status_packet.a_coordinate = 0xffff;
+
+    memcpy(current_position, sys.position, sizeof(sys.position));
+
+    system_convert_array_steps_to_mpos(print_position, current_position);
+
+    uint_fast8_t idx;
+    float wco[N_AXIS];
+    for (idx = 0; idx < N_AXIS; idx++) {
+        // Apply work coordinate offsets and tool length offset to current position.
+        wco[idx] = gc_get_offset(idx);
+        print_position[idx] -= wco[idx];
+    }  
+    
     status_packet.address = 0x01;
+    
+    switch(jogModify){
+        case JogModify_1:
+            jog_modifier = 1;
+        break;
+        case JogModify_01:
+            jog_modifier = 0.1;                    
+        break;
+        case JogModify_001:
+            jog_modifier = 0.01;                    
+        break;  
+    }
     
     switch (state_get()){
         case STATE_ALARM:
@@ -217,8 +282,29 @@ static void send_status_info (void)
     status_packet.spindle_stop = sys.override.spindle_stop.value;
     status_packet.alarm = (uint8_t) sys.alarm;
     status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
-    status_packet.jog_mode = (uint8_t) jogMode;
+    status_packet.jog_mode = (uint8_t) jogMode << 4 | (uint8_t) jogModify;
+    status_packet.x_coordinate = print_position[0];
+    status_packet.y_coordinate = print_position[1];
+    status_packet.z_coordinate = print_position[2];
+    #if N_AXIS > 3
+    status_packet.a_coordinate = print_position[3];
+    #else
+    status_packet.a_coordinate = 0xFFFFFFFF;
+    #endif
 
+    switch(jogMode){
+        case JogMode_Slow:
+        status_packet.jog_stepsize = jog.slow_speed * jog_modifier;
+        break;
+        case JogMode_Fast:
+        status_packet.jog_stepsize = jog.fast_speed * jog_modifier;
+        break;
+        default:
+        status_packet.jog_stepsize = jog.step_distance * jog_modifier;
+        break;
+    }
+    status_packet.current_wcs = gc_state.modal.coord_system.id;   
+    
     I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 0);
 }
 
@@ -226,6 +312,8 @@ static void keypad_process_keypress (sys_state_t state)
 {
     bool addedGcode, jogCommand = false;
     char command[35] = "", keycode = keypad_get_keycode();
+    float jog_modifier = 0;
+    int g5x;
 
     if(state == STATE_ESTOP)
         return;
@@ -237,13 +325,55 @@ static void keypad_process_keypress (sys_state_t state)
 
         switch(keycode) {
 
-            case '?':                                    // Request status report.  Currently NOT the real-time status as we only want to send if a pendant is present and ready to receive.
-                hal.delay_ms(1, send_status_info);
-                break;                                       
+            case '?':                                    // pendant keep alive.
+                grbl.enqueue_realtime_command(CMD_STATUS_REPORT);
+                break;
+             case ZEROYU:                                   // zero y top
+                hal.stream.write("ZEROYU"  ASCII_EOL);
+                break;
+             case ZEROYD:                                   // zero y bottom
+                hal.stream.write("ZEROYD"  ASCII_EOL);
+                break;
+             case ZEROXL:                                   // zero x left
+                hal.stream.write("ZEROXL"  ASCII_EOL);
+                break;
+             case ZEROXR:                                   // zero x right
+                hal.stream.write("ZEROXR"  ASCII_EOL);
+                break;
+             case OFFSET:                                   // change WCS
+                //hal.stream.write("OFFSET"  ASCII_EOL);
+                if (gc_state.modal.coord_system.id  < N_WorkCoordinateSystems-1)
+                    strcat(strcpy(command, "G"), map_coord_system(gc_state.modal.coord_system.id+1));    
+                else
+                    strcat(strcpy(command, "G"), map_coord_system(0x00));
+
+                    
+                //map_coord_system(gc_state.modal.coord_system.id);
+                //protocol_enqueue_gcode(command);
+                //strcpy(command, "$H");
+                
+                hal.stream.write(command);
+                hal.stream.write(ASCII_EOL);
+                break;
+             case ZEROZ:                                   // zero Z
+                hal.stream.write("ZEROZ"  ASCII_EOL);
+                break;
+             case SPINON:                                   // turn spindle on for zero, or off if it is already running
+                hal.stream.write("SPINON"  ASCII_EOL);
+                break;
+             case ZEROALL:                                   // zero all
+                hal.stream.write("ZEROALL"  ASCII_EOL);
+                break;
+             case UNLOCK:                                   // Unlock controller
+                hal.stream.write("UNLOCK"  ASCII_EOL);
+                break;
+             case RESET:                                   // Soft reset controller
+                hal.stream.write("RESET"  ASCII_EOL);
+                break;
+                                                                                                                                        
              case 'M':                                   // Mist override
                 enqueue_accessory_override(CMD_OVERRIDE_COOLANT_MIST_TOGGLE);
                 break;
-
             case 'C':                                   // Coolant override
                 enqueue_accessory_override(CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE);
                 break;
@@ -273,6 +403,11 @@ static void keypad_process_keypress (sys_state_t state)
                     keypad.on_jogmode_changed(jogMode);
                 break;
 
+            case 'm':                                   // cycle jog modifier
+                jogModify = jogModify == JogModify_001 ? JogModify_1 : (jogModify == JogModify_1 ? JogModify_01 : JogModify_001);
+                if(keypad.on_jogmodify_changed)
+                    keypad.on_jogmodify_changed(jogModify);
+                break;
             case 'H':                                   // Home axes
                 strcpy(command, "$H");
                 break;
@@ -288,6 +423,7 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_OVERRIDE_RAPID_MEDIUM:
             case CMD_OVERRIDE_RAPID_LOW:
                 enqueue_feed_override(keycode);
+                hal.delay_ms(25, send_status_info);
                 break;
 
             case CMD_OVERRIDE_FAN0_TOGGLE:
@@ -300,6 +436,7 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_OVERRIDE_SPINDLE_FINE_MINUS:
             case CMD_OVERRIDE_SPINDLE_STOP:
                 enqueue_accessory_override(keycode);
+                hal.delay_ms(25, send_status_info);                
                 break;
 
             case CMD_SAFETY_DOOR:
@@ -307,6 +444,7 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_SINGLE_BLOCK_TOGGLE:
             case CMD_PROBE_CONNECTED_TOGGLE:
                 grbl.enqueue_realtime_command(keycode);
+                hal.delay_ms(25, send_status_info);
                 break;
 
          // Jogging
@@ -369,27 +507,35 @@ static void keypad_process_keypress (sys_state_t state)
         }
 
         if(command[0] != '\0') {
-
             // add distance and speed to jog commands
+            switch(jogModify){
+                case JogModify_1:
+                    jog_modifier = 1;
+                break;
+                case JogModify_01:
+                    jog_modifier = 0.1;                    
+                break;
+                case JogModify_001:
+                    jog_modifier = 0.01;                    
+                break;                                                            
+            }
             if((jogCommand = (command[0] == '$' && command[1] == 'J'))) switch(jogMode) {
-
                 case JogMode_Slow:
                     strrepl(command, '?', ftoa(jog.slow_distance, 0));
-                    strcat(command, ftoa(jog.slow_speed, 0));
+                    strcat(command, ftoa(jog.slow_speed*jog_modifier, 0));
                     break;
 
                 case JogMode_Step:
-                    strrepl(command, '?', ftoa(jog.step_distance, gc_state.modal.units_imperial ? 4 : 3));
+                    strrepl(command, '?', ftoa(jog.step_distance*jog_modifier, gc_state.modal.units_imperial ? 4 : 3));
                     strcat(command, ftoa(jog.step_speed, 0));
                     break;
 
                 default:
                     strrepl(command, '?', ftoa(jog.fast_distance, 0));
-                    strcat(command, ftoa(jog.fast_speed, 0));
+                    strcat(command, ftoa(jog.fast_speed*jog_modifier, 0));
                     break;
             }
-
-            if(!(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!
+            if(!(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!             
                 addedGcode = grbl.enqueue_gcode((char *)command);
                 jogging = jogging || (jogCommand && addedGcode);
             }
@@ -400,6 +546,7 @@ static void keypad_process_keypress (sys_state_t state)
 static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
+    send_status_info();
 
     if(!newopt)
         hal.stream.write("[PLUGIN:KEYPAD v1.3 INTERTEST]"  ASCII_EOL);
@@ -469,14 +616,51 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 
 static void onStateChanged (sys_state_t state)
 {
-    hal.delay_ms(50,NULL);
     send_status_info();
 }
 
 static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_flags_t report)
 {
-    hal.delay_ms(SEND_STATUS_DELAY,send_status_info);
     //send_status_info();
+}
+
+static void keypad_poll (void)
+{
+    static uint32_t last_ms;
+
+    uint32_t ms = hal.get_elapsed_ticks();
+
+    if(ms < last_ms + SEND_STATUS_DELAY){ // check once every update period
+        return;
+    }else if (state_get() == STATE_CYCLE && ms < last_ms + (SEND_STATUS_DELAY*2))
+        return;
+
+    send_status_info();
+    last_ms = ms;
+}
+
+static void keypad_poll_realtime (sys_state_t grbl_state)
+{
+    on_execute_realtime(grbl_state);
+
+    keypad_poll();
+}
+
+static void keypad_poll_delay (sys_state_t grbl_state)
+{
+    on_execute_delay(grbl_state);
+
+    keypad_poll();
+}
+
+static void jogmode_changed (jogmode_t jogMode)
+{
+    send_status_info();
+}
+
+static void jogmodify_changed (jogmodify_t jogModify)
+{
+    send_status_info();
 }
 
 bool keypad_init (void)
@@ -486,16 +670,32 @@ bool keypad_init (void)
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = onReportOptions;
 
-        settings_register(&setting_details);
+        on_execute_realtime = grbl.on_execute_realtime;
+        grbl.on_execute_realtime = keypad_poll_realtime;
+
+        on_execute_delay = grbl.on_execute_delay;
+        grbl.on_execute_delay = keypad_poll_delay;
+
+        settings_register(&setting_details);       
+
+        on_jogmode_changed = keypad.on_jogmode_changed;
+        keypad.on_jogmode_changed = jogmode_changed;
+
+        on_jogmodify_changed = keypad.on_jogmodify_changed;
+        keypad.on_jogmodify_changed = jogmodify_changed;
 
         if(keypad.on_jogmode_changed)
             keypad.on_jogmode_changed(jogMode);
+
+        if(keypad.on_jogmodify_changed)
+            keypad.on_jogmodify_changed(jogModify);                               
 
         on_state_change = grbl.on_state_change;             // Subscribe to the state changed event by saving away the original
         grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.
 
         on_realtime_report = grbl.on_realtime_report;       // Subscribe to realtime report events AKA ? reports
-        grbl.on_realtime_report = onRealtimeReport;         // Nothing here yet           
+        grbl.on_realtime_report = onRealtimeReport;         // Nothing here yet
+     
     }   
 
     return nvs_address != 0;
