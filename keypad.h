@@ -73,12 +73,6 @@ typedef enum {
     JogModify_001
 } jogmodify_t;
 
-typedef struct {
-    float xy_diameter;
-    float z_height;
-    float probe_rpm;
-} pendant_probe_settings_t;
-
 typedef void (*keycode_callback_ptr)(const char c);
 typedef bool (*on_keypress_preview_ptr)(const char c, uint_fast16_t state);
 typedef void (*on_jogmode_changed_ptr)(jogmode_t jogmode);

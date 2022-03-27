@@ -70,6 +70,7 @@ uint8_t feed_override;
 uint8_t spindle_override;
 uint8_t spindle_stop;
 int spindle_rpm;
+float feed_rate;
 coolant_state_t coolant_state;
 uint8_t jog_mode;  //includes both modifier as well as mode
 float jog_stepsize;
@@ -80,8 +81,6 @@ float z_coordinate;
 float a_coordinate;
 } Machine_status_packet;
 
-static void send_status_info (void);
-
 Machine_status_packet status_packet;
 
 uint8_t *status_ptr = (uint8_t*) &status_packet;
@@ -89,7 +88,6 @@ static bool jogging = false, keyreleased = true, pendant_attached = false;
 static jogmode_t jogMode = JogMode_Fast;
 static jogmodify_t jogModify = JogModify_1;
 static jog_settings_t jog;
-static pendant_probe_settings_t pendant_probe;
 static keybuffer_t keybuf = {0};
 static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
@@ -107,9 +105,9 @@ static const setting_detail_t keypad_settings[] = {
     { Setting_JogStepDistance, Group_Jogging, "Step jog distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_NonCore, &jog.step_distance, NULL, NULL },
     { Setting_JogSlowDistance, Group_Jogging, "Slow jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_distance, NULL, NULL },
     { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL },
-    { Setting_UserDefined_0, Group_Probing, "Manual probe diameter", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &pendant_probe.xy_diameter, NULL, NULL },
-    { Setting_UserDefined_1, Group_Probing, "Manual probe height", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &pendant_probe.z_height, NULL, NULL },
-    { Setting_UserDefined_2, Group_Probing, "Manual probing RPM", "rpm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &pendant_probe.probe_rpm, NULL, NULL },
+    { Setting_UserDefined_0, Group_Probing, "Manual probe diameter", "mm", Format_Decimal, "##0.000", NULL, NULL, Setting_NonCore, &jog.xy_diameter, NULL, NULL },
+    { Setting_UserDefined_1, Group_Probing, "Manual probe height", "mm", Format_Decimal, "##0.000", NULL, NULL, Setting_NonCore, &jog.z_height, NULL, NULL },
+    { Setting_UserDefined_2, Group_Probing, "Manual probing RPM", "rpm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.probe_rpm, NULL, NULL },
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -142,9 +140,9 @@ static void keypad_settings_restore (void)
     jog.slow_distance = 500.0f;
     jog.fast_distance = 3000.0f;
 
-    pendant_probe.xy_diameter = 5.08f;
-    pendant_probe.z_height = 3.175f;
-    pendant_probe.probe_rpm = 1500.0f;
+    jog.xy_diameter = 5.08f;
+    jog.z_height = 3.175f;
+    jog.probe_rpm = 1500.0f;
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
 }
@@ -280,6 +278,7 @@ static void send_status_info (void)
     status_packet.feed_override = sys.override.feed_rate;
     status_packet.spindle_override = sys.override.spindle_rpm;
     status_packet.spindle_stop = sys.override.spindle_stop.value;
+    status_packet.spindle_rpm = sys.spindle_rpm;
     status_packet.alarm = (uint8_t) sys.alarm;
     status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
     status_packet.jog_mode = (uint8_t) jogMode << 4 | (uint8_t) jogModify;
@@ -291,6 +290,8 @@ static void send_status_info (void)
     #else
     status_packet.a_coordinate = 0xFFFFFFFF;
     #endif
+
+    status_packet.feed_rate = st_get_realtime_rate();
 
     switch(jogMode){
         case JogMode_Slow:
@@ -315,6 +316,8 @@ static void keypad_process_keypress (sys_state_t state)
     float jog_modifier = 0;
     int g5x;
 
+    spindle_state_t spindle_state;
+
     if(state == STATE_ESTOP)
         return;
 
@@ -326,19 +329,28 @@ static void keypad_process_keypress (sys_state_t state)
         switch(keycode) {
 
             case '?':                                    // pendant keep alive.
-                grbl.enqueue_realtime_command(CMD_STATUS_REPORT);
+                //grbl.enqueue_realtime_command(CMD_STATUS_REPORT);
+                //send_status_info();
                 break;
              case ZEROYU:                                   // zero y top
-                hal.stream.write("ZEROYU"  ASCII_EOL);
+                strcat(strcpy(command, "G10 L20 P0 Y"), ftoa(jog.xy_diameter/2, 5));
+                //hal.stream.write(command);
+                //hal.stream.write(ASCII_EOL);                
                 break;
              case ZEROYD:                                   // zero y bottom
-                hal.stream.write("ZEROYD"  ASCII_EOL);
+                strcat(strcpy(command, "G10 L20 P0 Y"), ftoa(-(jog.xy_diameter/2), 5));
+                //hal.stream.write(command);
+                //hal.stream.write(ASCII_EOL);                
                 break;
              case ZEROXL:                                   // zero x left
-                hal.stream.write("ZEROXL"  ASCII_EOL);
+                strcat(strcpy(command, "G10 L20 P0 X"), ftoa(-(jog.xy_diameter/2), 5));
+                //hal.stream.write(command);
+                //hal.stream.write(ASCII_EOL);
                 break;
              case ZEROXR:                                   // zero x right
-                hal.stream.write("ZEROXR"  ASCII_EOL);
+                strcat(strcpy(command, "G10 L20 P0 X"), ftoa(jog.xy_diameter/2, 5));
+                //hal.stream.write(command);
+                //hal.stream.write(ASCII_EOL);                
                 break;
              case OFFSET:                                   // change WCS
                 //hal.stream.write("OFFSET"  ASCII_EOL);
@@ -346,29 +358,27 @@ static void keypad_process_keypress (sys_state_t state)
                     strcat(strcpy(command, "G"), map_coord_system(gc_state.modal.coord_system.id+1));    
                 else
                     strcat(strcpy(command, "G"), map_coord_system(0x00));
-
-                    
-                //map_coord_system(gc_state.modal.coord_system.id);
-                //protocol_enqueue_gcode(command);
-                //strcpy(command, "$H");
-                
-                hal.stream.write(command);
-                hal.stream.write(ASCII_EOL);
                 break;
              case ZEROZ:                                   // zero Z
-                hal.stream.write("ZEROZ"  ASCII_EOL);
+                strcat(strcpy(command, "G10 L20 P0 Z"), ftoa(jog.z_height, 5));
                 break;
              case SPINON:                                   // turn spindle on for zero, or off if it is already running
-                hal.stream.write("SPINON"  ASCII_EOL);
+                spindle_state = hal.spindle.get_state();
+                if(!spindle_state.on){
+                    strcat(strcpy(command, "S"), ftoa((jog.probe_rpm), 0));
+                    strcat(command, "M03");
+                } else{
+                    strcpy(command, "M05");
+                }
                 break;
              case ZEROALL:                                   // zero all
-                hal.stream.write("ZEROALL"  ASCII_EOL);
+                strcpy(command, "G10 L20 P0 X0 Y0 Z0");
                 break;
              case UNLOCK:                                   // Unlock controller
-                hal.stream.write("UNLOCK"  ASCII_EOL);
+                strcpy(command, "$X");           
                 break;
              case RESET:                                   // Soft reset controller
-                hal.stream.write("RESET"  ASCII_EOL);
+                grbl.enqueue_realtime_command(CMD_RESET);
                 break;
                                                                                                                                         
              case 'M':                                   // Mist override
@@ -423,7 +433,7 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_OVERRIDE_RAPID_MEDIUM:
             case CMD_OVERRIDE_RAPID_LOW:
                 enqueue_feed_override(keycode);
-                hal.delay_ms(25, send_status_info);
+                send_status_info();
                 break;
 
             case CMD_OVERRIDE_FAN0_TOGGLE:
@@ -436,7 +446,7 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_OVERRIDE_SPINDLE_FINE_MINUS:
             case CMD_OVERRIDE_SPINDLE_STOP:
                 enqueue_accessory_override(keycode);
-                hal.delay_ms(25, send_status_info);                
+                send_status_info();                
                 break;
 
             case CMD_SAFETY_DOOR:
@@ -444,7 +454,7 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_SINGLE_BLOCK_TOGGLE:
             case CMD_PROBE_CONNECTED_TOGGLE:
                 grbl.enqueue_realtime_command(keycode);
-                hal.delay_ms(25, send_status_info);
+                send_status_info();
                 break;
 
          // Jogging
@@ -632,8 +642,9 @@ static void keypad_poll (void)
 
     if(ms < last_ms + SEND_STATUS_DELAY){ // check once every update period
         return;
-    }else if (state_get() == STATE_CYCLE && ms < last_ms + (SEND_STATUS_DELAY*2))
-        return;
+    }
+    /*else if (state_get() == STATE_CYCLE && ms < last_ms + (SEND_STATUS_DELAY*2))
+        return;*/
 
     send_status_info();
     last_ms = ms;
