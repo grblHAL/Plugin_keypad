@@ -46,6 +46,7 @@
 #include "grbl/protocol.h"
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
+#include "grbl/limits.h"
 #endif
 
 typedef struct {
@@ -212,6 +213,40 @@ static void jog_command (char *cmd, char *to)
     strcat(strcpy(cmd, "$J=G91G21"), to);
 }
 
+static status_code_t disable_lock (sys_state_t state)
+{
+    status_code_t retval = Status_OK;
+
+    if(state & (STATE_ALARM|STATE_ESTOP)) {
+
+        control_signals_t control_signals = hal.control.get_state();
+
+        // Block if self-test failed
+        if(sys.alarm == Alarm_SelftestFailed)
+            retval = Status_SelfTestFailed;
+        // Block if e-stop is active.
+        else if (control_signals.e_stop)
+            retval = Status_EStop;
+        // Block if safety door is ajar.
+        else if (control_signals.safety_door_ajar)
+            retval = Status_CheckDoor;
+        // Block if safety reset is active.
+        else if(control_signals.reset)
+            retval = Status_Reset;
+        else if(settings.limits.flags.hard_enabled && settings.limits.flags.check_at_init && limit_signals_merge(hal.limits.get_state()).value)
+            retval = Status_LimitsEngaged;
+        else if(limits_homing_required())
+            retval = Status_HomingRequired;
+        else {
+            grbl.report.feedback_message(Message_AlarmUnlock);
+            state_set(STATE_IDLE);
+        }
+        // Don't run startup script. Prevents stored moves in startup from causing accidents.
+    } // Otherwise, no effect.
+
+    return retval;
+}
+
 static void send_status_info (void)
 {    
     int32_t current_position[N_AXIS]; // Copy current state of the system position variable
@@ -314,7 +349,6 @@ static void keypad_process_keypress (sys_state_t state)
     bool addedGcode, jogCommand = false;
     char command[35] = "", keycode = keypad_get_keycode();
     float jog_modifier = 0;
-    int g5x;
 
     spindle_state_t spindle_state;
 
@@ -374,8 +408,8 @@ static void keypad_process_keypress (sys_state_t state)
              case ZEROALL:                                   // zero all
                 strcpy(command, "G10 L20 P0 X0 Y0 Z0");
                 break;
-             case UNLOCK:                                   // Unlock controller
-                strcpy(command, "$X");           
+             case UNLOCK:  
+                disable_lock(state_get());
                 break;
              case RESET:                                   // Soft reset controller
                 grbl.enqueue_realtime_command(CMD_RESET);
