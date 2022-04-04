@@ -30,6 +30,12 @@
 #include "grbl/settings.h"
 #endif
 
+#if N_AXIS > 3
+#define N_MACROS 5
+#else
+#define N_MACROS 7
+#endif
+
 #define KEYBUF_SIZE 8 // must be a power of 2
 #define KEYPAD_I2CADDR 0x49
 #define STATUSDATA_SIZE 256
@@ -49,17 +55,16 @@
 #define JOG_XLZU 'u'
 #define JOG_XLZD 'x'
 
-#define ZEROYU 0x18
-#define ZEROYD 0x19
-#define ZEROXL 0x1B
-#define ZEROXR 0x1A
-#define ZEROZ  0x7D
-#define OFFSET 0x7C
-#define ZEROALL  0x8E
+#define MACROUP 0x18
+#define MACRODOWN 0x19
+#define MACROLEFT 0x1B
+#define MACRORIGHT 0x1A
+#define MACROLOWER  0x7D
+#define MACRORAISE 0x7C
+#define MACROHOME  0x8E
 #define RESET  0x7F
 #define UNLOCK 0x80
 #define SPINON 0x81
-
 
 typedef enum {
     JogMode_Fast = 0,
@@ -73,6 +78,26 @@ typedef enum {
     JogModify_001
 } jogmodify_t;
 
+typedef struct Machine_status_packet {
+uint8_t address;
+uint8_t machine_state;
+uint8_t alarm;
+uint8_t home_state;
+uint8_t feed_override;
+uint8_t spindle_override;
+uint8_t spindle_stop;
+int spindle_rpm;
+float feed_rate;
+coolant_state_t coolant_state;
+uint8_t jog_mode;  //includes both modifier as well as mode
+float jog_stepsize;
+coord_system_id_t current_wcs;  //active WCS or MCS modal state
+float x_coordinate;
+float y_coordinate;
+float z_coordinate;
+float a_coordinate;
+} Machine_status_packet;
+
 typedef void (*keycode_callback_ptr)(const char c);
 typedef bool (*on_keypress_preview_ptr)(const char c, uint_fast16_t state);
 typedef void (*on_jogmode_changed_ptr)(jogmode_t jogmode);
@@ -83,6 +108,15 @@ typedef struct {
     on_jogmode_changed_ptr on_jogmode_changed;
     on_jogmodify_changed_ptr on_jogmodify_changed;
 } keypad_t;
+
+typedef struct {
+    uint8_t port;
+    char data[128];
+} macro_setting_t;
+
+typedef struct {
+    macro_setting_t macro[N_MACROS];
+} macro_settings_t;
 
 extern keypad_t keypad;
 

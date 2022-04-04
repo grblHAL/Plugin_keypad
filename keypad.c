@@ -28,6 +28,7 @@
 
 #if KEYPAD_ENABLE
 
+#include <stdio.h>
 #include <string.h>
 
 #include "keypad.h"
@@ -60,32 +61,21 @@ static char buf[(STRLEN_COORDVALUE + 1) * N_AXIS];
 static on_state_change_ptr on_state_change;
 //static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
 
-#define SEND_STATUS_DELAY 250
+#define SEND_STATUS_DELAY 300
 
-typedef struct Machine_status_packet {
-uint8_t address;
-uint8_t machine_state;
-uint8_t alarm;
-uint8_t home_state;
-uint8_t feed_override;
-uint8_t spindle_override;
-uint8_t spindle_stop;
-int spindle_rpm;
-float feed_rate;
-coolant_state_t coolant_state;
-uint8_t jog_mode;  //includes both modifier as well as mode
-float jog_stepsize;
-coord_system_id_t current_wcs;  //active WCS or MCS modal state
-float x_coordinate;
-float y_coordinate;
-float z_coordinate;
-float a_coordinate;
-} Machine_status_packet;
+static bool is_executing = false;
+static char *command;
+static nvs_address_t nvs_address;
+static macro_settings_t plugin_settings;
+static stream_read_ptr stream_read;
+static driver_reset_ptr driver_reset;
+
+static int16_t get_macro_char (void);
 
 Machine_status_packet status_packet;
 
 uint8_t *status_ptr = (uint8_t*) &status_packet;
-static bool jogging = false, keyreleased = true, pendant_attached = false;
+static bool jogging = false, keyreleased = true;
 static jogmode_t jogMode = JogMode_Fast;
 static jogmodify_t jogModify = JogModify_1;
 static jog_settings_t jog;
@@ -106,9 +96,15 @@ static const setting_detail_t keypad_settings[] = {
     { Setting_JogStepDistance, Group_Jogging, "Step jog distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_NonCore, &jog.step_distance, NULL, NULL },
     { Setting_JogSlowDistance, Group_Jogging, "Slow jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_distance, NULL, NULL },
     { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL },
-    { Setting_UserDefined_0, Group_Probing, "Manual probe diameter", "mm", Format_Decimal, "##0.000", NULL, NULL, Setting_NonCore, &jog.xy_diameter, NULL, NULL },
-    { Setting_UserDefined_1, Group_Probing, "Manual probe height", "mm", Format_Decimal, "##0.000", NULL, NULL, Setting_NonCore, &jog.z_height, NULL, NULL },
-    { Setting_UserDefined_2, Group_Probing, "Manual probing RPM", "rpm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.probe_rpm, NULL, NULL },
+    { Setting_UserDefined_0, Group_UserSettings, "Macro 1 UP", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[0].data, NULL, NULL },
+    { Setting_UserDefined_1, Group_UserSettings, "Macro 2 RIGHT", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[1].data, NULL, NULL },
+    { Setting_UserDefined_2, Group_UserSettings, "Macro 3 DOWN", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[2].data, NULL, NULL },
+    { Setting_UserDefined_3, Group_UserSettings, "Macro 4 LEFT", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[3].data, NULL, NULL },
+    { Setting_UserDefined_4, Group_UserSettings, "Macro 5 SPINDLE", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[4].data, NULL, NULL },
+#if N_MACROS > 5
+    { Setting_UserDefined_5, Group_UserSettings, "Macro 5 RAISE", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[5].data, NULL, NULL },
+    { Setting_UserDefined_6, Group_UserSettings, "Macro 6 LOWER", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[6].data, NULL, NULL },
+#endif
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -120,16 +116,108 @@ static const setting_descr_t keypad_settings_descr[] = {
     { Setting_JogStepDistance, "Jog distance for single step jogging." },
     { Setting_JogSlowDistance, "Jog distance before automatic stop." },
     { Setting_JogFastDistance, "Jog distance before automatic stop." },
-    { Setting_UserDefined_0, "Diameter of probe for manual probing" },
-    { Setting_UserDefined_1, "Height of Z probe during manual probing." },
-    { Setting_UserDefined_2, "Spindle RPM for probing/center-finding." },
+    { Setting_UserDefined_0, "Macro content for macro 1, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_1, "Macro content for macro 2, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_2, "Macro content for macro 3, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_3, "Macro content for macro 4, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_4, "Spindle Macro.  Use to start spindle, or turn it off if running." },
+#if N_MACROS > 5
+    { Setting_UserDefined_5, "Macro content for macro 4, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_6, "Macro content for macro 4, separate blocks (lines) with the vertical bar character |." },
+#endif    
 };
 
 #endif
 
+// Ends macro execution if currently running
+// and restores normal operation.
+static void end_macro (void)
+{
+    is_executing = false;
+    if(hal.stream.read == get_macro_char) {
+        hal.stream.read = stream_read;
+        report_init_fns();
+    }
+}
+
+// Called on a soft reset so that normal operation can be restored.
+static void plugin_reset (void)
+{
+    end_macro();    // End macro if currently running.
+    driver_reset(); // Call the next reset handler in the chain.
+}
+
+// Macro stream input function.
+// Reads character by character from the macro and returns them when
+// requested by the foreground process.
+static int16_t get_macro_char (void)
+{
+    static bool eol_ok = false;
+
+    if(*command == '\0') {                          // End of macro?
+        end_macro();                                // If end reading from it
+        return eol_ok ? SERIAL_NO_DATA : ASCII_LF;  // and return a linefeed if the last character was not a linefeed.
+    }
+
+    char c = *command++;    // Get next character.
+
+    if((eol_ok = c == '|')) // If character is vertical bar
+        c = ASCII_LF;       // return a linefeed character.
+
+    return (uint16_t)c;
+}
+
+// This code will be executed after each command is sent to the parser,
+// If an error is detected macro execution will be stopped and the status_code reported.
+static status_code_t trap_status_report (status_code_t status_code)
+{
+    if(status_code != Status_OK) {
+        char msg[30];
+        sprintf(msg, "error %d in macro", (uint8_t)status_code);
+        report_message(msg, Message_Warning);
+        end_macro();
+    }
+
+    return status_code;
+}
+
+// Actual start of macro execution.
+static void run_macro (uint_fast16_t state)
+{
+    if(state == STATE_IDLE && hal.stream.read != get_macro_char) {
+        stream_read = hal.stream.read;                      // Redirect input stream to read from the macro instead of
+        hal.stream.read = get_macro_char;                   // the active stream. This ensures that input streams are not mingled.
+        grbl.report.status_message = trap_status_report;    // Add trap for status messages so we can terminate on errors.
+    }
+}
+
+// On falling interrupt run macro if machine is in Idle state.
+// Since this function runs in an interrupt context actual start of execution
+// is registered as a single run task to be started from the foreground process.
+// TODO: add debounce?
+//probably don't need this to be ISR for I2C macros.
+static void execute_macro (uint8_t macro)
+{
+    if(!is_executing && state_get() == STATE_IDLE) {
+        is_executing = true;
+        command = plugin_settings.macro[macro].data;
+        if(!(*command == '\0' || *command == 0xFF))     // If valid command
+            protocol_enqueue_rt_command(run_macro);     // register run_macro function to be called from foreground process.
+    }
+}
+
+// Add info about our settings for $help and enumerations.
+// Potentially used by senders for settings UI.
+
+static const setting_group_detail_t macro_groups [] = {
+    { Group_Root, Group_UserSettings, "Macros"}
+};
+
+// Write settings to non volatile storage (NVS).
 static void keypad_settings_save (void)
 {
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
+    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
 }
 
 static void keypad_settings_restore (void)
@@ -141,20 +229,37 @@ static void keypad_settings_restore (void)
     jog.slow_distance = 500.0f;
     jog.fast_distance = 3000.0f;
 
-    jog.xy_diameter = 5.08f;
-    jog.z_height = 3.175f;
-    jog.probe_rpm = 1500.0f;
-
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
+    
+    uint_fast8_t idx;
+
+    // Register empty macro strings.
+    for(idx = 0; idx < N_MACROS; idx++) {
+        *plugin_settings.macro[idx].data = '\0';
+    };
+
+    //strcat(strcpy(command, "S"), ftoa(200, 0));
+    //strcat(command, "M03");
+    //plugin_settings.macro[4].data = command;
+    strcpy(command, "S200M03");
+    for(idx = 0; idx < N_MACROS; idx++) {
+        plugin_settings.macro[4].data[idx] = command[idx];
+    };
+
+    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
+
 }
 
 static void keypad_settings_load (void)
 {
-    if(hal.nvs.memcpy_from_nvs((uint8_t *)&jog, nvs_address, sizeof(jog_settings_t), true) != NVS_TransferResult_OK)
-        keypad_settings_restore();
+    if((hal.nvs.memcpy_from_nvs((uint8_t *)&jog, nvs_address, sizeof(jog_settings_t), true) != NVS_TransferResult_OK) && 
+       (hal.nvs.memcpy_from_nvs((uint8_t *)&plugin_settings, nvs_address, sizeof(macro_settings_t), true) != NVS_TransferResult_OK))
+        keypad_settings_restore();   
 }
 
 static setting_details_t setting_details = {
+    .groups = macro_groups,
+    .n_groups = sizeof(macro_groups) / sizeof(setting_group_detail_t),
     .settings = keypad_settings,
     .n_settings = sizeof(keypad_settings) / sizeof(setting_detail_t),
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -233,15 +338,10 @@ static status_code_t disable_lock (sys_state_t state)
         // Block if safety reset is active.
         else if(control_signals.reset)
             retval = Status_Reset;
-        else if(settings.limits.flags.hard_enabled && settings.limits.flags.check_at_init && limit_signals_merge(hal.limits.get_state()).value)
-            retval = Status_LimitsEngaged;
-        else if(limits_homing_required())
-            retval = Status_HomingRequired;
         else {
             grbl.report.feedback_message(Message_AlarmUnlock);
             state_set(STATE_IDLE);
         }
-        // Don't run startup script. Prevents stored moves in startup from causing accidents.
     } // Otherwise, no effect.
 
     return retval;
@@ -362,51 +462,42 @@ static void keypad_process_keypress (sys_state_t state)
 
         switch(keycode) {
 
-            case '?':                                    // pendant keep alive.
-                //grbl.enqueue_realtime_command(CMD_STATUS_REPORT);
-                //send_status_info();
+            case '?':                                    // pendant attach
+                grbl.enqueue_realtime_command(CMD_STATUS_REPORT);
+                send_status_info();
                 break;
-             case ZEROYU:                                   // zero y top
-                strcat(strcpy(command, "G10 L20 P0 Y"), ftoa(jog.xy_diameter/2, 5));
-                //hal.stream.write(command);
-                //hal.stream.write(ASCII_EOL);                
+             case MACROUP:                                   //Macro 1 up
+                //strcat(strcpy(command, "G10 L20 P0 Y"), ftoa(1.27, 5)); 
+                execute_macro(0);            
                 break;
-             case ZEROYD:                                   // zero y bottom
-                strcat(strcpy(command, "G10 L20 P0 Y"), ftoa(-(jog.xy_diameter/2), 5));
-                //hal.stream.write(command);
-                //hal.stream.write(ASCII_EOL);                
+             case MACRODOWN:                                   //Macro 3 down
+                //strcat(strcpy(command, "G10 L20 P0 Y"), ftoa(-1.27, 5));
+                execute_macro(2);              
                 break;
-             case ZEROXL:                                   // zero x left
-                strcat(strcpy(command, "G10 L20 P0 X"), ftoa(-(jog.xy_diameter/2), 5));
-                //hal.stream.write(command);
-                //hal.stream.write(ASCII_EOL);
+             case MACROLEFT:                                   //Macro 2 right
+                //strcat(strcpy(command, "G10 L20 P0 X"), ftoa(-1.27, 5));
+                execute_macro(1); 
                 break;
-             case ZEROXR:                                   // zero x right
-                strcat(strcpy(command, "G10 L20 P0 X"), ftoa(jog.xy_diameter/2, 5));
-                //hal.stream.write(command);
-                //hal.stream.write(ASCII_EOL);                
+             case MACRORIGHT:                                   //Macro 4 left
+                //strcat(strcpy(command, "G10 L20 P0 X"), ftoa(1.27, 5));
+                execute_macro(3);             
                 break;
-             case OFFSET:                                   // change WCS
-                //hal.stream.write("OFFSET"  ASCII_EOL);
-                if (gc_state.modal.coord_system.id  < N_WorkCoordinateSystems-1)
-                    strcat(strcpy(command, "G"), map_coord_system(gc_state.modal.coord_system.id+1));    
-                else
-                    strcat(strcpy(command, "G"), map_coord_system(0x00));
-                break;
-             case ZEROZ:                                   // zero Z
-                strcat(strcpy(command, "G10 L20 P0 Z"), ftoa(jog.z_height, 5));
-                break;
-             case SPINON:                                   // turn spindle on for zero, or off if it is already running
+             case SPINON:                                   //Macro 5 is special
                 spindle_state = hal.spindle.get_state();
                 if(!spindle_state.on){
-                    strcat(strcpy(command, "S"), ftoa((jog.probe_rpm), 0));
-                    strcat(command, "M03");
+                    //strcat(strcpy(command, "S"), ftoa(1500, 0));
+                    //strcat(command, "M03");
+                    execute_macro(4); 
                 } else{
                     strcpy(command, "M05");
                 }
                 break;
-             case ZEROALL:                                   // zero all
-                strcpy(command, "G10 L20 P0 X0 Y0 Z0");
+             case MACROHOME:                                   // change WCS                
+                if (gc_state.modal.coord_system.id  < N_WorkCoordinateSystems-1)
+                    strcat(strcpy(command, "G"), map_coord_system(gc_state.modal.coord_system.id+1));    
+                else
+                    strcat(strcpy(command, "G"), map_coord_system(0x00));
+                break;                
                 break;
              case UNLOCK:  
                 disable_lock(state_get());
@@ -548,6 +639,14 @@ static void keypad_process_keypress (sys_state_t state)
             case JOG_XLZD:                              // Jog -X-Z
                 jog_command(command, "X-?Z-?F");
                 break;
+
+             case MACRORAISE:                           //  Jog +A
+                jog_command(command, "A?F");
+                break;
+
+             case MACROLOWER:                           // Jog -A
+                jog_command(command, "A-?F");
+                break;                
         }
 
         if(command[0] != '\0') {
@@ -590,10 +689,11 @@ static void keypad_process_keypress (sys_state_t state)
 static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
-    send_status_info();
 
-    if(!newopt)
+    if(!newopt){
         hal.stream.write("[PLUGIN:KEYPAD v1.3 INTERTEST]"  ASCII_EOL);
+        hal.stream.write("[PLUGIN:Macro plugin v0.02]" ASCII_EOL);
+    }
 }
 
 ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
@@ -674,12 +774,11 @@ static void keypad_poll (void)
 
     uint32_t ms = hal.get_elapsed_ticks();
 
-    if(ms < last_ms + SEND_STATUS_DELAY){ // check once every update period
-        return;
-    }
-    /*else if (state_get() == STATE_CYCLE && ms < last_ms + (SEND_STATUS_DELAY*2))
-        return;*/
-
+    if (state_get() == STATE_JOG && ms > last_ms + (50)){ //check faster during jogging.
+        send_status_info();
+        last_ms = ms;}
+    else if(ms < last_ms + SEND_STATUS_DELAY){ // check once every update period
+        return;}
     send_status_info();
     last_ms = ms;
 }
@@ -710,7 +809,15 @@ static void jogmodify_changed (jogmodify_t jogModify)
 
 bool keypad_init (void)
 {
-    if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && (nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
+    if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && 
+      (nvs_address = nvs_alloc(sizeof(jog_settings_t))) && 
+      (nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
+
+        // Hook into the driver reset chain so we
+        // can restore normal operation if a reset happens
+        // when a macro is running.
+        driver_reset = hal.driver_reset;
+        hal.driver_reset = plugin_reset;
 
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = onReportOptions;
