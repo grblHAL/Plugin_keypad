@@ -62,28 +62,28 @@ static on_state_change_ptr on_state_change;
 //static on_execute_realtime_ptr on_execute_realtime; // For real time loop insertion
 
 #define SEND_STATUS_DELAY 300
+#define SEND_STATUS_JOG_DELAY 100
 
 static bool is_executing = false;
 static char *command;
-static nvs_address_t nvs_address;
-static macro_settings_t plugin_settings;
+static nvs_address_t keypad_nvs_address;
+static nvs_address_t macro_nvs_address;
+static macro_settings_t macro_plugin_settings;
 static stream_read_ptr stream_read;
 static driver_reset_ptr driver_reset;
 
 static int16_t get_macro_char (void);
 
-Machine_status_packet status_packet;
+static Machine_status_packet status_packet;
 
-uint8_t *status_ptr = (uint8_t*) &status_packet;
+static uint8_t *status_ptr = (uint8_t*) &status_packet;
 static bool jogging = false, keyreleased = true;
 static jogmode_t jogMode = JogMode_Fast;
 static jogmodify_t jogModify = JogModify_1;
 static jog_settings_t jog;
 static keybuffer_t keybuf = {0};
-static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
 static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
-static on_realtime_report_ptr on_realtime_report;
 static on_jogmode_changed_ptr on_jogmode_changed;
 static on_jogmodify_changed_ptr on_jogmodify_changed;
 
@@ -96,38 +96,51 @@ static const setting_detail_t keypad_settings[] = {
     { Setting_JogStepDistance, Group_Jogging, "Step jog distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_NonCore, &jog.step_distance, NULL, NULL },
     { Setting_JogSlowDistance, Group_Jogging, "Slow jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_distance, NULL, NULL },
     { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL },
-    { Setting_UserDefined_0, Group_UserSettings, "Macro 1 UP", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[0].data, NULL, NULL },
-    { Setting_UserDefined_1, Group_UserSettings, "Macro 2 RIGHT", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[1].data, NULL, NULL },
-    { Setting_UserDefined_2, Group_UserSettings, "Macro 3 DOWN", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[2].data, NULL, NULL },
-    { Setting_UserDefined_3, Group_UserSettings, "Macro 4 LEFT", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[3].data, NULL, NULL },
-    { Setting_UserDefined_4, Group_UserSettings, "Macro 5 SPINDLE", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[4].data, NULL, NULL },
-#if N_MACROS > 5
-    { Setting_UserDefined_5, Group_UserSettings, "Macro 5 RAISE", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[5].data, NULL, NULL },
-    { Setting_UserDefined_6, Group_UserSettings, "Macro 6 LOWER", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &plugin_settings.macro[6].data, NULL, NULL },
-#endif
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
-
 static const setting_descr_t keypad_settings_descr[] = {
     { Setting_JogStepSpeed, "Step jogging speed in millimeters per minute." },
     { Setting_JogSlowSpeed, "Slow jogging speed in millimeters per minute." },
     { Setting_JogFastSpeed, "Fast jogging speed in millimeters per minute." },
     { Setting_JogStepDistance, "Jog distance for single step jogging." },
     { Setting_JogSlowDistance, "Jog distance before automatic stop." },
-    { Setting_JogFastDistance, "Jog distance before automatic stop." },
+    { Setting_JogFastDistance, "Jog distance before automatic stop." },  
+};
+#endif
+
+static const setting_detail_t macro_settings[] = {
+    { Setting_UserDefined_0, Group_Jogging, "Macro 1 UP", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[0].data, NULL, NULL },
+    { Setting_UserDefined_1, Group_Jogging, "Macro 2 RIGHT", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[1].data, NULL, NULL },
+    { Setting_UserDefined_2, Group_Jogging, "Macro 3 DOWN", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[2].data, NULL, NULL },
+    { Setting_UserDefined_3, Group_Jogging, "Macro 4 LEFT", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[3].data, NULL, NULL },
+    { Setting_UserDefined_4, Group_Jogging, "Macro 5 SPINDLE", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[4].data, NULL, NULL },
+#if N_MACROS > 5
+    { Setting_UserDefined_5, Group_Jogging, "Macro 6 RAISE", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[5].data, NULL, NULL },
+    { Setting_UserDefined_6, Group_Jogging, "Macro 7 LOWER", NULL, Format_String, "x(127)", "0", "127", Setting_NonCore, &macro_plugin_settings.macro[6].data, NULL, NULL },
+#endif
+};
+
+#ifndef NO_SETTINGS_DESCRIPTIONS
+static const setting_descr_t macro_settings_descr[] = {
     { Setting_UserDefined_0, "Macro content for macro 1, separate blocks (lines) with the vertical bar character |." },
     { Setting_UserDefined_1, "Macro content for macro 2, separate blocks (lines) with the vertical bar character |." },
     { Setting_UserDefined_2, "Macro content for macro 3, separate blocks (lines) with the vertical bar character |." },
     { Setting_UserDefined_3, "Macro content for macro 4, separate blocks (lines) with the vertical bar character |." },
     { Setting_UserDefined_4, "Spindle Macro.  Use to start spindle, or turn it off if running." },
 #if N_MACROS > 5
-    { Setting_UserDefined_5, "Macro content for macro 4, separate blocks (lines) with the vertical bar character |." },
-    { Setting_UserDefined_6, "Macro content for macro 4, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_5, "Macro content for macro 6, separate blocks (lines) with the vertical bar character |." },
+    { Setting_UserDefined_6, "Macro content for macro 7, separate blocks (lines) with the vertical bar character |." },
 #endif    
 };
-
 #endif
+
+// Add info about our settings for $help and enumerations.
+// Potentially used by senders for settings UI.
+
+//static const setting_group_detail_t macro_groups [] = {
+//    { Group_Root, Group_UserSettings, "Macros"}
+//};
 
 // Ends macro execution if currently running
 // and restores normal operation.
@@ -200,24 +213,15 @@ static void execute_macro (uint8_t macro)
 {
     if(!is_executing && state_get() == STATE_IDLE) {
         is_executing = true;
-        command = plugin_settings.macro[macro].data;
+        command = macro_plugin_settings.macro[macro].data;
         if(!(*command == '\0' || *command == 0xFF))     // If valid command
             protocol_enqueue_rt_command(run_macro);     // register run_macro function to be called from foreground process.
     }
 }
 
-// Add info about our settings for $help and enumerations.
-// Potentially used by senders for settings UI.
-
-static const setting_group_detail_t macro_groups [] = {
-    { Group_Root, Group_UserSettings, "Macros"}
-};
-
-// Write settings to non volatile storage (NVS).
 static void keypad_settings_save (void)
 {
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
+    hal.nvs.memcpy_to_nvs(keypad_nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
 }
 
 static void keypad_settings_restore (void)
@@ -229,37 +233,16 @@ static void keypad_settings_restore (void)
     jog.slow_distance = 500.0f;
     jog.fast_distance = 3000.0f;
 
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
-    
-    uint_fast8_t idx;
-
-    // Register empty macro strings.
-    for(idx = 0; idx < N_MACROS; idx++) {
-        *plugin_settings.macro[idx].data = '\0';
-    };
-
-    //strcat(strcpy(command, "S"), ftoa(200, 0));
-    //strcat(command, "M03");
-    //plugin_settings.macro[4].data = command;
-    strcpy(command, "S200M03");
-    for(idx = 0; idx < N_MACROS; idx++) {
-        plugin_settings.macro[4].data[idx] = command[idx];
-    };
-
-    hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
-
+    hal.nvs.memcpy_to_nvs(keypad_nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
 }
 
 static void keypad_settings_load (void)
 {
-    if((hal.nvs.memcpy_from_nvs((uint8_t *)&jog, nvs_address, sizeof(jog_settings_t), true) != NVS_TransferResult_OK) && 
-       (hal.nvs.memcpy_from_nvs((uint8_t *)&plugin_settings, nvs_address, sizeof(macro_settings_t), true) != NVS_TransferResult_OK))
-        keypad_settings_restore();   
+    if(hal.nvs.memcpy_from_nvs((uint8_t *)&jog, keypad_nvs_address, sizeof(jog_settings_t), true) != NVS_TransferResult_OK)
+        keypad_settings_restore();
 }
 
-static setting_details_t setting_details = {
-    .groups = macro_groups,
-    .n_groups = sizeof(macro_groups) / sizeof(setting_group_detail_t),
+static setting_details_t keypad_setting_details = {
     .settings = keypad_settings,
     .n_settings = sizeof(keypad_settings) / sizeof(setting_detail_t),
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -269,6 +252,54 @@ static setting_details_t setting_details = {
     .load = keypad_settings_load,
     .restore = keypad_settings_restore,
     .save = keypad_settings_save
+};
+
+// Write settings to non volatile storage (NVS).
+static void macro_settings_save (void)
+{
+    hal.nvs.memcpy_to_nvs(macro_nvs_address, (uint8_t *)&macro_plugin_settings, sizeof(macro_settings_t), true);
+}
+
+static void macro_settings_restore (void)
+{   
+    uint_fast8_t idx;
+    char cmd_str[] = "S200M03";
+
+    // Register empty macro strings.
+    for(idx = 0; idx < N_MACROS; idx++) {
+        *macro_plugin_settings.macro[idx].data = '\0';
+    };
+
+    for(idx = 0; idx < strlen(cmd_str); idx++) {
+        macro_plugin_settings.macro[4].data[idx] = cmd_str[idx];
+    };
+    macro_plugin_settings.macro[4].data[idx] = '\0';
+    //idx++;
+    //macro_plugin_settings.macro[4].data[idx] = '\0';    
+
+    hal.nvs.memcpy_to_nvs(macro_nvs_address, (uint8_t *)&macro_plugin_settings, sizeof(macro_settings_t), true);
+
+}
+
+static void macro_settings_load (void)
+{
+    if(hal.nvs.memcpy_from_nvs((uint8_t *)&macro_plugin_settings, macro_nvs_address, sizeof(macro_settings_t), true) != NVS_TransferResult_OK)
+        macro_settings_restore();   
+}
+
+// Settings descriptor used by the core when interacting with this plugin.
+static setting_details_t macro_setting_details = {
+    //.groups = macro_groups,
+    //.n_groups = sizeof(macro_groups) / sizeof(setting_group_detail_t),
+    .settings = macro_settings,
+    .n_settings = sizeof(macro_settings) / sizeof(setting_detail_t),
+#ifndef NO_SETTINGS_DESCRIPTIONS
+    .descriptions = macro_settings_descr,
+    .n_descriptions = sizeof(macro_settings_descr) / sizeof(setting_descr_t),
+#endif
+    .save = macro_settings_save,
+    .load = macro_settings_load,
+    .restore = macro_settings_restore
 };
 
 // Returns 0 if no keycode enqueued
@@ -353,7 +384,7 @@ static void send_status_info (void)
     float jog_modifier = 0;
     float print_position[N_AXIS];
     status_packet.a_coordinate = 0xffff;
-
+    
     memcpy(current_position, sys.position, sizeof(sys.position));
 
     system_convert_array_steps_to_mpos(print_position, current_position);
@@ -427,7 +458,7 @@ static void send_status_info (void)
     #endif
 
     status_packet.feed_rate = st_get_realtime_rate();
-
+    
     switch(jogMode){
         case JogMode_Slow:
         status_packet.jog_stepsize = jog.slow_speed * jog_modifier;
@@ -439,9 +470,10 @@ static void send_status_info (void)
         status_packet.jog_stepsize = jog.step_distance * jog_modifier;
         break;
     }
-    status_packet.current_wcs = gc_state.modal.coord_system.id;   
     
-    I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 0);
+    status_packet.current_wcs = gc_state.modal.coord_system.id;       
+
+    I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 1);    
 }
 
 static void keypad_process_keypress (sys_state_t state)
@@ -717,7 +749,7 @@ ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
         keybuf.head = bptr;             // and update pointer.
         keyreleased = false;
         // Tell foreground process to process keycode
-        if(nvs_address != 0)
+        if(keypad_nvs_address != 0)
             protocol_enqueue_rt_command(keypad_process_keypress);
     }
 
@@ -734,7 +766,7 @@ ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
         keybuf.buf[keybuf.head] = c;    // add data to buffer
         keybuf.head = bptr;             // and update pointer
         // Tell foreground process to process keycode
-        if(nvs_address != 0)
+        if(keypad_nvs_address != 0)
             protocol_enqueue_rt_command(keypad_process_keypress);
     }
 }
@@ -743,8 +775,9 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 {
     keyreleased = !keydown;
 
-    if(keydown)
+    if(keydown){
         I2C_GetKeycode(KEYPAD_I2CADDR, i2c_enqueue_keycode);
+    }
 
     else if(jogging) {
         jogging = false;
@@ -763,24 +796,27 @@ static void onStateChanged (sys_state_t state)
     send_status_info();
 }
 
-static void onRealtimeReport (stream_write_ptr stream_write, report_tracking_flags_t report)
-{
-    //send_status_info();
-}
-
 static void keypad_poll (void)
 {
     static uint32_t last_ms;
 
     uint32_t ms = hal.get_elapsed_ticks();
 
-    if (state_get() == STATE_JOG && ms > last_ms + (50)){ //check faster during jogging.
+    //check more often during manual jogging
+    if (state_get() == STATE_JOG){
+        if(ms < last_ms + SEND_STATUS_JOG_DELAY)
+            return;
+        
         send_status_info();
-        last_ms = ms;}
-    else if(ms < last_ms + SEND_STATUS_DELAY){ // check once every update period
-        return;}
-    send_status_info();
-    last_ms = ms;
+        last_ms = ms;
+
+    } else{
+        if(ms < last_ms + SEND_STATUS_DELAY) // check once every update period
+        return;
+        
+        send_status_info();
+        last_ms = ms;
+    }
 }
 
 static void keypad_poll_realtime (sys_state_t grbl_state)
@@ -810,8 +846,9 @@ static void jogmodify_changed (jogmodify_t jogModify)
 bool keypad_init (void)
 {
     if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && 
-      (nvs_address = nvs_alloc(sizeof(jog_settings_t))) && 
-      (nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
+      (keypad_nvs_address = nvs_alloc(sizeof(jog_settings_t))) && 
+      (macro_nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
+    //if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler)){
 
         // Hook into the driver reset chain so we
         // can restore normal operation if a reset happens
@@ -828,29 +865,21 @@ bool keypad_init (void)
         on_execute_delay = grbl.on_execute_delay;
         grbl.on_execute_delay = keypad_poll_delay;
 
-        settings_register(&setting_details);       
-
+        settings_register(&keypad_setting_details); 
+        settings_register(&macro_setting_details);     
+        
         on_jogmode_changed = keypad.on_jogmode_changed;
         keypad.on_jogmode_changed = jogmode_changed;
 
         on_jogmodify_changed = keypad.on_jogmodify_changed;
         keypad.on_jogmodify_changed = jogmodify_changed;
 
-        if(keypad.on_jogmode_changed)
-            keypad.on_jogmode_changed(jogMode);
-
-        if(keypad.on_jogmodify_changed)
-            keypad.on_jogmodify_changed(jogModify);                               
-
         on_state_change = grbl.on_state_change;             // Subscribe to the state changed event by saving away the original
-        grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.
-
-        on_realtime_report = grbl.on_realtime_report;       // Subscribe to realtime report events AKA ? reports
-        grbl.on_realtime_report = onRealtimeReport;         // Nothing here yet
-     
+        grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.   
+         
     }   
 
-    return nvs_address != 0;
+    return macro_nvs_address && keypad_nvs_address != 0;
 }
 
 #else

@@ -111,7 +111,7 @@ typedef struct {
 
 typedef struct {
     uint8_t port;
-    char data[128];
+    char data[127];
 } macro_setting_t;
 
 typedef struct {
@@ -119,6 +119,7 @@ typedef struct {
 } macro_settings_t;
 
 extern keypad_t keypad;
+
 
 bool keypad_init (void);
 bool keypad_enqueue_keycode (char c);
