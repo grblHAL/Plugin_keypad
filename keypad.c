@@ -138,10 +138,6 @@ static const setting_descr_t macro_settings_descr[] = {
 // Add info about our settings for $help and enumerations.
 // Potentially used by senders for settings UI.
 
-//static const setting_group_detail_t macro_groups [] = {
-//    { Group_Root, Group_UserSettings, "Macros"}
-//};
-
 // Ends macro execution if currently running
 // and restores normal operation.
 static void end_macro (void)
@@ -273,9 +269,7 @@ static void macro_settings_restore (void)
     for(idx = 0; idx < strlen(cmd_str); idx++) {
         macro_plugin_settings.macro[4].data[idx] = cmd_str[idx];
     };
-    macro_plugin_settings.macro[4].data[idx] = '\0';
-    //idx++;
-    //macro_plugin_settings.macro[4].data[idx] = '\0';    
+    macro_plugin_settings.macro[4].data[idx] = '\0'; 
 
     hal.nvs.memcpy_to_nvs(macro_nvs_address, (uint8_t *)&macro_plugin_settings, sizeof(macro_settings_t), true);
 
@@ -289,8 +283,6 @@ static void macro_settings_load (void)
 
 // Settings descriptor used by the core when interacting with this plugin.
 static setting_details_t macro_setting_details = {
-    //.groups = macro_groups,
-    //.n_groups = sizeof(macro_groups) / sizeof(setting_group_detail_t),
     .settings = macro_settings,
     .n_settings = sizeof(macro_settings) / sizeof(setting_detail_t),
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -384,6 +376,12 @@ static void send_status_info (void)
     float jog_modifier = 0;
     float print_position[N_AXIS];
     status_packet.a_coordinate = 0xffff;
+
+    static uint32_t last_ms;
+    uint32_t ms = hal.get_elapsed_ticks();
+
+    if(ms < last_ms + 10) // don't spam the port
+    return;
     
     memcpy(current_position, sys.position, sizeof(sys.position));
 
@@ -473,7 +471,9 @@ static void send_status_info (void)
     
     status_packet.current_wcs = gc_state.modal.coord_system.id;       
 
-    I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 1);    
+    I2C_Send (KEYPAD_I2CADDR, status_ptr, sizeof(Machine_status_packet), 0); 
+
+    last_ms = ms;   
 }
 
 static void keypad_process_keypress (sys_state_t state)
@@ -794,6 +794,8 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 static void onStateChanged (sys_state_t state)
 {
     send_status_info();
+    //if (on_state_change)         // Call previous function in the chain.
+    //    on_state_change(state);    
 }
 
 static void keypad_poll (void)
@@ -843,6 +845,11 @@ static void jogmodify_changed (jogmodify_t jogModify)
     send_status_info();
 }
 
+static void warning_msg (uint_fast16_t state)
+{
+    report_message("Keypad plugin failed to initialize!", Message_Warning);
+}
+
 bool keypad_init (void)
 {
     if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && 
@@ -877,6 +884,9 @@ bool keypad_init (void)
         on_state_change = grbl.on_state_change;             // Subscribe to the state changed event by saving away the original
         grbl.on_state_change = onStateChanged;              // function pointer and adding ours to the chain.   
          
+    }
+    else{
+        protocol_enqueue_rt_command(warning_msg);
     }   
 
     return macro_nvs_address && keypad_nvs_address != 0;
