@@ -442,7 +442,16 @@ static void send_status_info (void)
     status_packet.feed_override = sys.override.feed_rate;
     status_packet.spindle_override = sys.override.spindle_rpm;
     status_packet.spindle_stop = sys.override.spindle_stop.value;
-    status_packet.spindle_rpm = sys.spindle_rpm;
+
+    // Report realtime feed speed
+        if(hal.spindle.cap.variable) {
+            status_packet.spindle_rpm = sys.spindle_rpm;
+            if(hal.spindle.get_data)
+                status_packet.spindle_rpm = hal.spindle.get_data(SpindleData_RPM)->rpm;
+        } else
+            status_packet.spindle_rpm = sys.spindle_rpm;
+
+    status_packet.spindle_rpm = sys.spindle_rpm;  //rpm should be changed to actual reading
     status_packet.alarm = (uint8_t) sys.alarm;
     status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
     status_packet.jog_mode = (uint8_t) jogMode << 4 | (uint8_t) jogModify;
@@ -671,14 +680,24 @@ static void keypad_process_keypress (sys_state_t state)
             case JOG_XLZD:                              // Jog -X-Z
                 jog_command(command, "X-?Z-?F");
                 break;
-
+#if N_AXIS > 3
              case MACRORAISE:                           //  Jog +A
                 jog_command(command, "A?F");
                 break;
 
              case MACROLOWER:                           // Jog -A
                 jog_command(command, "A-?F");
-                break;                
+                break; 
+#else
+             case MACRORAISE:                           //  Macro 5
+                execute_macro(5); 
+                break;
+
+             case MACROLOWER:                           // Macro 6
+                execute_macro(6); 
+                break; 
+#endif                
+
         }
 
         if(command[0] != '\0') {
