@@ -2,6 +2,10 @@
 
 **Modified for Interactive two-way control**
 
+This version of the I2C keypad plugin is modified to send status info for display on the I2C jogger.  It also implements some basic macro functionality in response to button presses.
+
+https://github.com/Expatria-Technologies/I2C_Jog_Controller
+
 This plugin can be used for jogging, controlling feedhold, cycle start etc. via single character commands.
 The command characters can be delivered either via an I2C or an UART port.
 
