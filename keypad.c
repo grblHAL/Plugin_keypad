@@ -47,7 +47,7 @@
 #include "grbl/protocol.h"
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
-#include "grbl/limits.h"
+#include "grbl/machine_limits.h"
 #endif
 
 typedef struct {
