@@ -1,9 +1,9 @@
 /*
   keypad.h - I2C keypad plugin
 
-  Part of grblHAL
+  Part of grblHAL keypad plugins
 
-  Copyright (c) 2017-2021 Terje Io
+  Copyright (c) 2017-2023 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -47,6 +47,10 @@
 #define JOG_XRZD 'v'
 #define JOG_XLZU 'u'
 #define JOG_XLZD 'x'
+#if N_AXIS > 3
+#define JOG_AR   'A'
+#define JOG_AL   'a'
+#endif
 
 typedef enum {
     JogMode_Fast = 0,
@@ -54,13 +58,22 @@ typedef enum {
     JogMode_Step
 } jogmode_t;
 
+typedef struct {
+    jog_settings_t settings;
+    float modifier[3];
+    uint_fast8_t modifier_index;
+    jogmode_t mode;
+} jogdata_t;
+
 typedef void (*keycode_callback_ptr)(const char c);
 typedef bool (*on_keypress_preview_ptr)(const char c, uint_fast16_t state);
 typedef void (*on_jogmode_changed_ptr)(jogmode_t jogmode);
+typedef void (*on_jogdata_changed_ptr)(jogdata_t *jogdata);
 
 typedef struct {
     on_keypress_preview_ptr on_keypress_preview;
     on_jogmode_changed_ptr on_jogmode_changed;
+    on_jogdata_changed_ptr on_jogdata_changed;
 } keypad_t;
 
 extern keypad_t keypad;

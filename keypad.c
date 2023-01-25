@@ -1,9 +1,9 @@
 /*
   keypad.c - I2C keypad plugin
 
-  Part of grblHAL
+  Part of grblHAL keypad plugins
 
-  Copyright (c) 2017-2022 Terje Io
+  Copyright (c) 2017-2023 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -57,6 +57,13 @@ typedef struct {
 static bool jogging = false, keyreleased = true;
 static jogmode_t jogMode = JogMode_Fast;
 static jog_settings_t jog;
+static jogdata_t jogdata = {
+    .modifier[0] = 1.0f,
+    .modifier[1] = 0.1f,
+    .modifier[2] = 0.01f,
+    .modifier_index = 0,
+    .mode = JogMode_Fast
+};
 static keybuffer_t keybuf = {0};
 static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
@@ -106,6 +113,11 @@ static void keypad_settings_load (void)
 {
     if(hal.nvs.memcpy_from_nvs((uint8_t *)&jog, nvs_address, sizeof(jog_settings_t), true) != NVS_TransferResult_OK)
         keypad_settings_restore();
+
+    memcpy(&jogdata.settings, &jog, sizeof(jog_settings_t));
+
+    if(keypad.on_jogdata_changed)
+        keypad.on_jogdata_changed(&jogdata);
 }
 
 static setting_details_t setting_details = {
@@ -159,7 +171,7 @@ static void keypad_process_keypress (sys_state_t state)
     bool addedGcode, jogCommand = false;
     char command[35] = "", keycode = keypad_get_keycode();
 
-    if(state == STATE_ESTOP)
+    if(state == STATE_ESTOP && keycode != CMD_RESET)
         return;
 
     if(keycode) {
@@ -196,14 +208,27 @@ static void keypad_process_keypress (sys_state_t state)
                 jogMode = (jogmode_t)(keycode - '0');
                 break;
 
-            case 'h':                                   // "toggle" jog mode
+            case 'h':                                   // Cycle jog mode
                 jogMode = jogMode == JogMode_Step ? JogMode_Fast : (jogMode == JogMode_Fast ? JogMode_Slow : JogMode_Step);
                 if(keypad.on_jogmode_changed)
                     keypad.on_jogmode_changed(jogMode);
+                if(keypad.on_jogdata_changed)
+                    keypad.on_jogdata_changed(&jogdata);
+                break;
+
+            case 'm':                                   // Cycle jog modifier
+                if(++jogdata.modifier_index >= sizeof(jogdata.modifier) / sizeof(float))
+                    jogdata.modifier_index = 0;
+                if(keypad.on_jogdata_changed)
+                    keypad.on_jogdata_changed(&jogdata);
                 break;
 
             case 'H':                                   // Home axes
                 strcpy(command, "$H");
+                break;
+
+            case 'X':                                   // Unlock
+                strcpy(command, "$X");
                 break;
 
          // Feed rate and spindle overrides
@@ -257,6 +282,7 @@ static void keypad_process_keypress (sys_state_t state)
                 enqueue_accessory_override(keycode);
                 break;
 
+            case CMD_RESET:
             case CMD_SAFETY_DOOR:
             case CMD_OPTIONAL_STOP_TOGGLE:
             case CMD_SINGLE_BLOCK_TOGGLE:
@@ -321,27 +347,41 @@ static void keypad_process_keypress (sys_state_t state)
             case JOG_XLZD:                              // Jog -X-Z
                 jog_command(command, "X-?Z-?F");
                 break;
+#if N_AXIS > 3
+             case JOG_AR:                               //  Jog +A
+                jog_command(command, "A?F");
+                break;
+
+             case JOG_AL:                               // Jog -A
+                jog_command(command, "A-?F");
+                break;
+#endif
         }
 
         if(command[0] != '\0') {
 
+            float modifier = jogdata.modifier[jogdata.modifier_index];
+
             // add distance and speed to jog commands
-            if((jogCommand = (command[0] == '$' && command[1] == 'J'))) switch(jogMode) {
+            if((jogCommand = (command[0] == '$' && command[1] == 'J'))) {
 
-                case JogMode_Slow:
-                    strrepl(command, '?', ftoa(jog.slow_distance, 0));
-                    strcat(command, ftoa(jog.slow_speed, 0));
-                    break;
+                switch(jogMode) {
 
-                case JogMode_Step:
-                    strrepl(command, '?', ftoa(jog.step_distance, gc_state.modal.units_imperial ? 4 : 3));
-                    strcat(command, ftoa(jog.step_speed, 0));
-                    break;
+                    case JogMode_Slow:
+                        strrepl(command, '?', ftoa(jog.slow_distance, 0));
+                        strcat(command, ftoa(jog.slow_speed * modifier, 0));
+                        break;
 
-                default:
-                    strrepl(command, '?', ftoa(jog.fast_distance, 0));
-                    strcat(command, ftoa(jog.fast_speed, 0));
-                    break;
+                    case JogMode_Step:
+                        strrepl(command, '?', ftoa(jog.step_distance * modifier, gc_state.modal.units_imperial ? 4 : 3));
+                        strcat(command, ftoa(jog.step_speed, 0));
+                        break;
+
+                    default:
+                        strrepl(command, '?', ftoa(jog.fast_distance, 0));
+                        strcat(command, ftoa(jog.fast_speed * modifier, 0));
+                        break;
+                }
             }
 
             if(!(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!
