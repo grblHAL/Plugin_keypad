@@ -259,12 +259,16 @@ static void macro_settings_save (void)
 static void macro_settings_restore (void)
 {   
     uint_fast8_t idx;
-    char cmd_str[] = "S200M03";
+    char default_str[] = "G4P0";
 
     // Register empty macro strings.
     for(idx = 0; idx < N_MACROS; idx++) {
-        *macro_plugin_settings.macro[idx].data = '\0';
+            for(idx = 0; idx < strlen(default_str); idx++) {
+                macro_plugin_settings.macro[4].data[idx] = default_str[idx];
+            };
     };
+
+    char cmd_str[] = "S200M03";
 
     for(idx = 0; idx < strlen(cmd_str); idx++) {
         macro_plugin_settings.macro[4].data[idx] = cmd_str[idx];
@@ -517,11 +521,11 @@ static void keypad_process_keypress (sys_state_t state)
                 break;
              case MACROLEFT:                                   //Macro 2 right
                 //strcat(strcpy(command, "G10 L20 P0 X"), ftoa(-1.27, 5));
-                execute_macro(1); 
+                execute_macro(3); 
                 break;
              case MACRORIGHT:                                   //Macro 4 left
                 //strcat(strcpy(command, "G10 L20 P0 X"), ftoa(1.27, 5));
-                execute_macro(3);             
+                execute_macro(1);             
                 break;
              case SPINON:                                   //Macro 5 is special
                 spindle_state = hal.spindle.get_state();
