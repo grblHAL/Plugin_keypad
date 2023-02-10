@@ -259,13 +259,15 @@ static void macro_settings_save (void)
 static void macro_settings_restore (void)
 {   
     uint_fast8_t idx;
+    uint_fast8_t idy;
     char default_str[] = "G4P0";
 
     // Register empty macro strings.
     for(idx = 0; idx < N_MACROS; idx++) {
-            for(idx = 0; idx < strlen(default_str); idx++) {
-                macro_plugin_settings.macro[4].data[idx] = default_str[idx];
+            for(idy = 0; idy < strlen(default_str); idy++) {
+                macro_plugin_settings.macro[idx].data[idy] = default_str[idy];
             };
+            macro_plugin_settings.macro[idx].data[idy] = '\0';
     };
 
     char cmd_str[] = "S200M03";
