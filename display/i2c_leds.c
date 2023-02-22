@@ -28,9 +28,9 @@
 #if I2C_ENABLE && DISPLAY_ENABLE == 2
 
 #ifdef ARDUINO
-#include "../../i2c.h"
+#include "../../grbl/plugins.h"
 #else
-#include "i2c.h"
+#include "grbl/plugins.h"
 #endif
 
 #ifndef DISPLAY2_PCA9654E
@@ -38,15 +38,15 @@
 #endif
 
 #if DISPLAY2_PCA9654E
-#define LEDS_I2C_ADDR (0x40 >> 1)
+#define LEDS_I2CADDR (0x40 >> 1)
 #define READ_INPUT    0
 #define RW_OUTPUT     1
 #define RW_INVERSION  2
 #define RW_CONFIG     3
 #endif
 
-#ifndef LEDS_I2C_ADDR
-#define LEDS_I2C_ADDR 0x49
+#ifndef LEDS_I2CADDR
+#define LEDS_I2CADDR 0x49
 #endif
 
 typedef union {
@@ -88,9 +88,9 @@ static void leds_write (leds_t leds)
     cmd[0] = RW_OUTPUT;
     cmd[1] = leds.value;
 
-    I2C_Send(LEDS_I2C_ADDR, cmd, 2, false);
+    i2c_send(LEDS_I2CADDR, cmd, 2, false);
 #else
-    I2C_Send(LEDS_I2C_ADDR, leds.value, 1, false);
+    i2c_send(LEDS_I2CADDR, leds.value, 1, false);
 #endif
 }
 
@@ -139,7 +139,12 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C LEDS v0.01]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:I2C LEDS v0.02]" ASCII_EOL);
+}
+
+static void warn_unavailable (sys_state_t state)
+{
+    report_message("I2C LEDs not connected!", Message_Warning);
 }
 
 void display_init (void)
@@ -147,26 +152,31 @@ void display_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    on_state_change = grbl.on_state_change;
-    grbl.on_state_change = onStateChanged;
+    if(i2c_probe(LEDS_I2CADDR)) {
 
-    on_spindle_select = grbl.on_spindle_select;
-    grbl.on_spindle_select = onSpindleSelect;
+        on_state_change = grbl.on_state_change;
+        grbl.on_state_change = onStateChanged;
 
-    coolant_set_state_ = hal.coolant.set_state;
-    hal.coolant.set_state = onCoolantSetState;
+        on_spindle_select = grbl.on_spindle_select;
+        grbl.on_spindle_select = onSpindleSelect;
+
+        coolant_set_state_ = hal.coolant.set_state;
+        hal.coolant.set_state = onCoolantSetState;
 
 #if DISPLAY2_PCA9654E
-    uint8_t cmd[2];
+        uint8_t cmd[2];
 
-    cmd[0] = RW_CONFIG;
-    cmd[1] = 0;
-    I2C_Send(LEDS_I2C_ADDR, cmd, 2, true);
+        cmd[0] = RW_CONFIG;
+        cmd[1] = 0;
+        i2c_send(LEDS_I2CADDR, cmd, 2, true);
 
-    cmd[0] = RW_INVERSION;
-    cmd[1] = 0;
-    I2C_Send(LEDS_I2C_ADDR, cmd, 2, true);
+        cmd[0] = RW_INVERSION;
+        cmd[1] = 0;
+        i2c_send(LEDS_I2CADDR, cmd, 2, true);
 #endif
+
+    } else
+        protocol_enqueue_rt_command(warn_unavailable);
 }
 
 #endif

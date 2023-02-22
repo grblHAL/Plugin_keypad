@@ -29,7 +29,7 @@
 #if DISPLAY_ENABLE == 1
 
 #if KEYPAD_ENABLE
-#include "keypad.h"
+#include "../keypad.h"
 #endif
 
 #include <stdio.h>
@@ -38,18 +38,11 @@
 #include "i2c_interface.h"
 
 #ifdef ARDUINO
-#include "../../i2c.h"
-#include "../../grbl/report.h"
-#include "../../grbl/override.h"
+#include "../../grbl/plugins.h"
 #include "../../grbl/protocol.h"
-#include "../../grbl/state_machine.h"
 #else
-#include "i2c.h"
-#include "grbl/report.h"
+#include "grbl/plugins.h"
 #include "grbl/protocol.h"
-#include "grbl/nvs_buffer.h"
-#include "grbl/machine_limits.h"
-#include "grbl/state_machine.h"
 #endif
 
 #ifndef DISPLAY_I2CADDR
@@ -65,6 +58,7 @@ static on_state_change_ptr on_state_change;
 static on_override_changed_ptr on_override_changed;
 static on_report_options_ptr on_report_options;
 static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
+static on_gcode_message_ptr on_gcode_message;
 #if KEYPAD_ENABLE
 static on_keypress_preview_ptr on_keypress_preview;
 static on_jogdata_changed_ptr on_jogdata_changed;
@@ -119,9 +113,12 @@ static void send_status_info (void)
     status_packet.feed_rate = st_get_realtime_rate();
     status_packet.current_wcs = gc_state.modal.coord_system.id;
 
-    if(memcmp(&prev_status, &status_packet, sizeof(machine_status_packet_t))) {
-        if(I2C_Send(DISPLAY_I2CADDR, (uint8_t *)&status_packet, sizeof(machine_status_packet_t), false))
-            memcpy(&prev_status, &status_packet, sizeof(machine_status_packet_t));
+    if(status_packet.msglen != 0 || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen))) {
+        size_t msglen = status_packet.msglen ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msglen);
+        if(i2c_send(DISPLAY_I2CADDR, (uint8_t *)&status_packet, msglen + (status_packet.msglen == 255 ? 0 : status_packet.msglen), false)) {
+            status_packet.msglen = 0;
+            memcpy(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen));
+        }
     }
 }
 
@@ -165,7 +162,7 @@ static void onStateChanged (sys_state_t state)
     set_state(state);
     send_now = true;
 
-    if(on_state_change)         // Call previous function in the chain.
+    if(on_state_change)
         on_state_change(state);
 }
 
@@ -247,9 +244,21 @@ static void jogdata_changed (jogdata_t *jogdata)
 
 #endif
 
-static void override_changed (override_changed_t override)
+static void onOverrideChanged (override_changed_t override)
 {
     send_now = true;
+}
+
+static void onGCodeMessage (char *msg)
+{
+    if(on_gcode_message)
+        on_gcode_message(msg);
+
+    status_packet.msglen = strlen(msg);
+    if((status_packet.msglen = min(status_packet.msglen, sizeof(status_packet.msg) - 1)) == 0)
+        status_packet.msglen = 255; // empty string
+    else
+        strncpy(status_packet.msg, msg, status_packet.msglen);
 }
 
 static void onReportOptions (bool newopt)
@@ -257,7 +266,20 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C Display v0.01]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:I2C Display v0.02]" ASCII_EOL);
+}
+
+static void complete_setup (sys_state_t state)
+{
+    set_state(state);
+
+    on_execute_delay = grbl.on_execute_delay;
+    grbl.on_execute_delay = display_poll_delay;
+}
+
+static void warn_unavailable (sys_state_t state)
+{
+    report_message("I2C display not connected!", Message_Warning);
 }
 
 void display_init (void)
@@ -265,35 +287,41 @@ void display_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    on_execute_realtime = grbl.on_execute_realtime;
-    grbl.on_execute_realtime = display_poll_realtime;
+    if(i2c_probe(DISPLAY_I2CADDR)) {
 
-    on_execute_delay = grbl.on_execute_delay;
-    grbl.on_execute_delay = display_poll_delay;
+        on_execute_realtime = grbl.on_execute_realtime;
+        grbl.on_execute_realtime = display_poll_realtime;
 
-    on_state_change = grbl.on_state_change;
-    grbl.on_state_change = onStateChanged;
+        on_state_change = grbl.on_state_change;
+        grbl.on_state_change = onStateChanged;
 
-    on_override_changed = grbl.on_override_changed;
-    grbl.on_override_changed = override_changed;
+        on_override_changed = grbl.on_override_changed;
+        grbl.on_override_changed = onOverrideChanged;
 
-    status_packet.address = 0x01;
-#if N_AXIS == 3
-    status_packet.a_coordinate = 0xFFFFFFFF;
-#endif
+        on_gcode_message = grbl.on_gcode_message;
+        grbl.on_gcode_message = onGCodeMessage;
 
-    set_state(state_get());
+        status_packet.address = 0x01;
+        status_packet.msglen = 0;
+    #if N_AXIS == 3
+        status_packet.a_coordinate = 0xFFFFFFFF;
+    #endif
+
+        // delay final setup until startup is complete
+        protocol_enqueue_rt_command(complete_setup);
 
 #if KEYPAD_ENABLE
 
-    on_keypress_preview = keypad.on_keypress_preview;
-    keypad.on_keypress_preview = keypress_preview;
+        on_keypress_preview = keypad.on_keypress_preview;
+        keypad.on_keypress_preview = keypress_preview;
 
-    on_jogdata_changed = keypad.on_jogdata_changed;
-    keypad.on_jogdata_changed = jogdata_changed;
+        on_jogdata_changed = keypad.on_jogdata_changed;
+        keypad.on_jogdata_changed = jogdata_changed;
 
 #endif
+
+    } else
+        protocol_enqueue_rt_command(warn_unavailable);
 }
 
-#endif
-
+#endif // DISPLAY_ENABLE

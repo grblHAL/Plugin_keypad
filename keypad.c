@@ -33,14 +33,14 @@
 #include "keypad.h"
 
 #ifdef ARDUINO
-#include "../i2c.h"
+#include "../grbl/plugins.h"
 #include "../grbl/report.h"
 #include "../grbl/override.h"
 #include "../grbl/protocol.h"
 #include "../grbl/nvs_buffer.h"
 #include "../grbl/state_machine.h"
 #else
-#include "i2c.h"
+#include "grbl/plugins.h"
 #include "grbl/report.h"
 #include "grbl/override.h"
 #include "grbl/protocol.h"
@@ -448,7 +448,7 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
     keyreleased = !keydown;
 
     if(keydown)
-        I2C_GetKeycode(KEYPAD_I2CADDR, i2c_enqueue_keycode);
+        i2c_get_keycode(KEYPAD_I2CADDR, i2c_enqueue_keycode);
 
     else if(jogging) {
         jogging = false;

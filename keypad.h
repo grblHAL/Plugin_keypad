@@ -67,7 +67,6 @@ typedef struct {
     jogmode_t mode;
 } jogdata_t;
 
-typedef void (*keycode_callback_ptr)(const char c);
 typedef bool (*on_keypress_preview_ptr)(const char c, uint_fast16_t state);
 typedef void (*on_jogmode_changed_ptr)(jogmode_t jogmode);
 typedef void (*on_jogdata_changed_ptr)(jogdata_t *jogdata);

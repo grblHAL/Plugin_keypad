@@ -69,6 +69,8 @@ typedef struct {
     float y_coordinate;
     float z_coordinate;
     float a_coordinate;
+    uint8_t msglen; //<! When 255 clear message
+    char msg[128];
 } machine_status_packet_t;
 
 // #pragma pack(pop)
