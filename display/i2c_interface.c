@@ -53,6 +53,7 @@
 #endif
 #endif
 
+static uint8_t msglen = 0;
 static bool send_now = false;
 static on_state_change_ptr on_state_change;
 static on_override_changed_ptr on_override_changed;
@@ -89,6 +90,8 @@ static void send_status_info (void)
     spindle_ptrs_t *spindle = spindle_get(0);
 
     status_packet.coolant_state = hal.coolant.get_state();
+    status_packet.signals = hal.control.get_state();
+    status_packet.limits = limit_signals_merge(hal.limits.get_state());
     status_packet.feed_override = sys.override.feed_rate > 255 ? 255 : sys.override.feed_rate;
     status_packet.spindle_override = spindle->param->override_pct > 255 ? 255 : spindle->param->override_pct;
     status_packet.spindle_stop = sys.override.spindle_stop.value;
@@ -113,11 +116,11 @@ static void send_status_info (void)
     status_packet.feed_rate = st_get_realtime_rate();
     status_packet.current_wcs = gc_state.modal.coord_system.id;
 
-    if(status_packet.msglen != 0 || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen))) {
-        size_t msglen = status_packet.msglen ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msglen);
-        if(i2c_send(DISPLAY_I2CADDR, (uint8_t *)&status_packet, msglen + (status_packet.msglen == 255 ? 0 : status_packet.msglen), false)) {
-            status_packet.msglen = 0;
+    if(msglen || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen))) {
+        size_t len = (status_packet.msglen = msglen) ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msglen);
+        if(i2c_send(DISPLAY_I2CADDR, (uint8_t *)&status_packet, len + (status_packet.msglen == 255 ? 0 : status_packet.msglen), false)) {
             memcpy(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen));
+            msglen = 0;
         }
     }
 }
@@ -222,7 +225,8 @@ static bool keypress_preview (char keycode, sys_state_t state)
 
 static void jogdata_changed (jogdata_t *jogdata)
 {
-    status_packet.jog_mode = ((uint8_t)jogdata->mode << 4) | (uint8_t)jogdata->modifier_index;
+    status_packet.jog_mode.mode = jogdata->mode;
+    status_packet.jog_mode.modifier = jogdata->modifier_index;
 
     switch(jogdata->mode){
 
@@ -254,11 +258,11 @@ static void onGCodeMessage (char *msg)
     if(on_gcode_message)
         on_gcode_message(msg);
 
-    status_packet.msglen = strlen(msg);
-    if((status_packet.msglen = min(status_packet.msglen, sizeof(status_packet.msg) - 1)) == 0)
-        status_packet.msglen = 255; // empty string
+    msglen = strlen(msg);
+    if((msglen = min(msglen, sizeof(status_packet.msg) - 1)) == 0)
+        msglen = 255; // empty string
     else
-        strncpy(status_packet.msg, msg, status_packet.msglen);
+        strncpy(status_packet.msg, msg, msglen);
 }
 
 static void onReportOptions (bool newopt)
@@ -266,7 +270,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C Display v0.02]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:I2C Display v0.03]" ASCII_EOL);
 }
 
 static void complete_setup (sys_state_t state)
