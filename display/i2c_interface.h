@@ -27,7 +27,17 @@
 #include "grbl/gcode.h"
 #endif
 
+#include <assert.h>
+
+typedef uint8_t msg_type_t;
 typedef uint8_t machine_state_t;
+
+enum msg_type_t {
+    MachineMsg_None = 0,
+// 1-128 reserved for message string length
+    MachineMsg_WorkOffset = 254,
+    MachineMsg_ClearMessage = 255,
+};
 
 enum machine_state_t {
     MachineState_Alarm = 1,
@@ -41,6 +51,10 @@ enum machine_state_t {
     MachineState_Other = 254
 };
 
+static_assert(sizeof(msg_type_t) == 1, "msg_type_t too large for I2C display interface");
+static_assert(sizeof(machine_state_t) == 1, "machine_state_t too large for I2C display interface");
+static_assert(sizeof(coord_system_id_t) == 1, "coord_system_id_t too large for I2C display interface");
+
 typedef union {
     uint8_t value;
     struct {
@@ -48,6 +62,16 @@ typedef union {
                 mode     :4;
     };
 } jog_mode_t;
+
+typedef union {
+    float values[4];
+    struct {
+        float x;
+        float y;
+        float z;
+        float a;
+    };
+} machine_coords_t;
 
 typedef struct {
     uint8_t address;
@@ -68,10 +92,7 @@ typedef struct {
     axes_signals_t limits;
     uint8_t unused2;
     uint8_t unused3;
-    float x_coordinate;
-    float y_coordinate;
-    float z_coordinate;
-    float a_coordinate;
-    uint8_t msglen; //<! When 255 clear message
-    char msg[128];
+    machine_coords_t coordinate;
+    msg_type_t msgtype; //<! 1 - 128 -> msg[] contains a string msgtype long
+    uint8_t msg[128];
 } machine_status_packet_t;

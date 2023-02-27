@@ -53,13 +53,14 @@
 #endif
 #endif
 
-static uint8_t msglen = 0;
+static uint8_t msgtype = 0; // TODO: create a queue?
 static bool send_now = false;
 static on_state_change_ptr on_state_change;
 static on_override_changed_ptr on_override_changed;
 static on_report_options_ptr on_report_options;
 static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
 static on_gcode_message_ptr on_gcode_message;
+static on_wco_changed_ptr on_wco_changed;
 #if KEYPAD_ENABLE
 static on_keypress_preview_ptr on_keypress_preview;
 static on_jogdata_changed_ptr on_jogdata_changed;
@@ -72,20 +73,15 @@ static machine_status_packet_t status_packet, prev_status = {0};
 
 static void send_status_info (void)
 {
-    int32_t current_position[N_AXIS]; // Copy current state of the system position variable
-    float print_position[N_AXIS];
+    uint_fast8_t idx = min(4, N_AXIS);
 
-    memcpy(current_position, sys.position, sizeof(sys.position));
+    system_convert_array_steps_to_mpos(status_packet.coordinate.values, sys.position);
 
-    system_convert_array_steps_to_mpos(print_position, current_position);
-
-    uint_fast8_t idx;
-    float wco[N_AXIS];
-    for (idx = 0; idx < N_AXIS; idx++) {
+    do {
+        idx--;
         // Apply work coordinate offsets and tool length offset to current position.
-        wco[idx] = gc_get_offset(idx);
-        print_position[idx] -= wco[idx];
-    }
+        status_packet.coordinate.values[idx] -= gc_get_offset(idx);
+    } while(idx);
 
     spindle_ptrs_t *spindle = spindle_get(0);
 
@@ -106,21 +102,32 @@ static void send_status_info (void)
 */
     status_packet.spindle_rpm = spindle->param->rpm_overridden;  //rpm should be changed to actual reading
     status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
-    status_packet.x_coordinate = print_position[0];
-    status_packet.y_coordinate = print_position[1];
-    status_packet.z_coordinate = print_position[2];
-#if N_AXIS > 3
-    status_packet.a_coordinate = print_position[3];
-#endif
 
     status_packet.feed_rate = st_get_realtime_rate();
     status_packet.current_wcs = gc_state.modal.coord_system.id;
 
-    if(msglen || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen))) {
-        size_t len = (status_packet.msglen = msglen) ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msglen);
-        if(i2c_send(DISPLAY_I2CADDR, (uint8_t *)&status_packet, len + (status_packet.msglen == 255 ? 0 : status_packet.msglen), false)) {
-            memcpy(&prev_status, &status_packet, offsetof(machine_status_packet_t, msglen));
-            msglen = 0;
+    if(msgtype || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype))) {
+
+        size_t len = (status_packet.msgtype = msgtype) ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msgtype);
+
+        switch(msgtype) {
+
+            case MachineMsg_None:
+            case MachineMsg_ClearMessage:
+                break;
+
+            case MachineMsg_WorkOffset:
+                len += sizeof(machine_coords_t);
+                break;
+
+            default:
+                len += status_packet.msgtype;
+                break;
+        }
+
+        if(i2c_send(DISPLAY_I2CADDR, (uint8_t *)&status_packet, len, false)) {
+            memcpy(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype));
+            msgtype = MachineMsg_None;
         }
     }
 }
@@ -253,16 +260,36 @@ static void onOverrideChanged (override_changed_t override)
     send_now = true;
 }
 
+static void onWCOChanged (void)
+{
+    uint_fast8_t idx = min(4, N_AXIS);
+    machine_coords_t *wco = (machine_coords_t *)status_packet.msg;
+
+    if(on_wco_changed)
+        on_wco_changed();
+
+    do {
+        idx--;
+        wco->values[idx] = gc_get_offset(idx);
+    } while(idx);
+
+    send_now = true;
+    msgtype = MachineMsg_WorkOffset;
+
+}
+
 static void onGCodeMessage (char *msg)
 {
     if(on_gcode_message)
         on_gcode_message(msg);
 
-    msglen = strlen(msg);
-    if((msglen = min(msglen, sizeof(status_packet.msg) - 1)) == 0)
-        msglen = 255; // empty string
+    msgtype = strlen(msg);
+    if((msgtype = min(msgtype, sizeof(status_packet.msg) - 1)) == 0)
+        msgtype = MachineMsg_ClearMessage; // empty string
     else
-        strncpy(status_packet.msg, msg, msglen);
+        strncpy((char *)status_packet.msg, msg, msgtype);
+
+    send_now = true;
 }
 
 static void onReportOptions (bool newopt)
@@ -270,7 +297,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C Display v0.03]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:I2C Display v0.04]" ASCII_EOL);
 }
 
 static void complete_setup (sys_state_t state)
@@ -302,13 +329,16 @@ void display_init (void)
         on_override_changed = grbl.on_override_changed;
         grbl.on_override_changed = onOverrideChanged;
 
+        on_wco_changed = grbl.on_wco_changed;
+        grbl.on_wco_changed = onWCOChanged;
+
         on_gcode_message = grbl.on_gcode_message;
         grbl.on_gcode_message = onGCodeMessage;
 
         status_packet.address = 0x01;
-        status_packet.msglen = 0;
+        status_packet.msgtype = MachineMsg_None;
     #if N_AXIS == 3
-        status_packet.a_coordinate = 0xFFFFFFFF;
+        status_packet.coordinate.a = 0xFFFFFFFF;
     #endif
 
         // delay final setup until startup is complete
