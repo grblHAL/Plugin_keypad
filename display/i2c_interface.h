@@ -34,14 +34,14 @@ typedef uint8_t machine_state_t;
 
 enum msg_type_t {
     MachineMsg_None = 0,
-// 1-128 reserved for message string length
+// 1-127 reserved for message string length
+    MachineMsg_Overrides = 253,
     MachineMsg_WorkOffset = 254,
     MachineMsg_ClearMessage = 255,
 };
 
 enum machine_state_t {
     MachineState_Alarm = 1,
-    MachineState_EStop = 1,
     MachineState_Cycle = 2,
     MachineState_Hold = 3,
     MachineState_ToolChange = 4,
@@ -64,6 +64,17 @@ typedef union {
 } jog_mode_t;
 
 typedef union {
+    uint8_t value;
+    struct {
+        uint8_t diameter       :1,
+                mpg            :1,
+                homed          :1,
+                tlo_referenced :1,
+                mode           :3; // from machine_mode_t setting
+    };
+} machine_modes_t;
+
+typedef union {
     float values[4];
     struct {
         float x;
@@ -76,12 +87,12 @@ typedef union {
 typedef struct {
     uint8_t address;
     machine_state_t machine_state;
-    uint8_t alarm; // -> substate?
-    uint8_t home_state;
+    uint8_t machine_substate;
+    axes_signals_t home_state;
     uint8_t feed_override; // size changed in latest version!
     uint8_t spindle_override;
     uint8_t spindle_stop;
-    uint8_t unused1; // -> spindle_state_t?
+    spindle_state_t spindle_state;
     int spindle_rpm;
     float feed_rate;
     coolant_state_t coolant_state;
@@ -90,9 +101,9 @@ typedef struct {
     float jog_stepsize;
     coord_system_id_t current_wcs;  //active WCS or MCS modal state
     axes_signals_t limits;
-    uint8_t unused2;
-    uint8_t unused3;
+    status_code_t status_code;
+    machine_modes_t machine_modes;
     machine_coords_t coordinate;
-    msg_type_t msgtype; //<! 1 - 128 -> msg[] contains a string msgtype long
+    msg_type_t msgtype; //<! 1 - 127 -> msg[] contains a string msgtype long
     uint8_t msg[128];
 } machine_status_packet_t;

@@ -43,6 +43,7 @@
 #else
 #include "grbl/plugins.h"
 #include "grbl/protocol.h"
+#include "grbl/state_machine.h"
 #endif
 
 #ifndef DISPLAY_I2CADDR
@@ -56,11 +57,15 @@
 static uint8_t msgtype = 0; // TODO: create a queue?
 static bool send_now = false;
 static on_state_change_ptr on_state_change;
-static on_override_changed_ptr on_override_changed;
 static on_report_options_ptr on_report_options;
 static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
 static on_gcode_message_ptr on_gcode_message;
 static on_wco_changed_ptr on_wco_changed;
+static on_rt_reports_added_ptr on_rt_reports_added;
+static on_report_handlers_init_ptr on_report_handlers_init;
+static status_message_ptr status_message;
+//static feedback_message_ptr feedback_message;
+
 #if KEYPAD_ENABLE
 static on_keypress_preview_ptr on_keypress_preview;
 static on_jogdata_changed_ptr on_jogdata_changed;
@@ -85,12 +90,8 @@ static void send_status_info (void)
 
     spindle_ptrs_t *spindle = spindle_get(0);
 
-    status_packet.coolant_state = hal.coolant.get_state();
     status_packet.signals = hal.control.get_state();
     status_packet.limits = limit_signals_merge(hal.limits.get_state());
-    status_packet.feed_override = sys.override.feed_rate > 255 ? 255 : sys.override.feed_rate;
-    status_packet.spindle_override = spindle->param->override_pct > 255 ? 255 : spindle->param->override_pct;
-    status_packet.spindle_stop = sys.override.spindle_stop.value;
 /*
     // Report realtime feed speed
     if(spindle->cap.variable) {
@@ -101,10 +102,8 @@ static void send_status_info (void)
         status_packet.spindle_rpm = spindle->param->rpm;
 */
     status_packet.spindle_rpm = spindle->param->rpm_overridden;  //rpm should be changed to actual reading
-    status_packet.home_state = (uint8_t)(sys.homing.mask & sys.homed.mask);
 
     status_packet.feed_rate = st_get_realtime_rate();
-    status_packet.current_wcs = gc_state.modal.coord_system.id;
 
     if(msgtype || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype))) {
 
@@ -118,6 +117,12 @@ static void send_status_info (void)
 
             case MachineMsg_WorkOffset:
                 len += sizeof(machine_coords_t);
+                break;
+
+            case MachineMsg_Overrides:
+                memcpy(status_packet.msg, &sys.override, sizeof(overrides_t));
+                ((overrides_t *)status_packet.msg)->spindle_rpm = spindle->param->override_pct;
+                len += sizeof(overrides_t);
                 break;
 
             default:
@@ -134,15 +139,28 @@ static void send_status_info (void)
 
 static void set_state (sys_state_t state)
 {
-    status_packet.alarm = (uint8_t)sys.alarm;
+    status_packet.machine_substate = state_get_substate();
 
     switch (state) {
-        case STATE_ALARM:
-            status_packet.machine_state = MachineState_Alarm;
-            break;
         case STATE_ESTOP:
-            status_packet.machine_state = MachineState_EStop;
+        case STATE_ALARM:
+            {
+                status_packet.machine_state = MachineState_Alarm;
+
+                char *alarm;
+                if((alarm = (char *)alarms_get_description((alarm_code_t)status_packet.machine_substate))) {
+                    strncpy((char *)status_packet.msg, alarm, sizeof(status_packet.msg) - 1);
+                    if((alarm = strchr((char *)status_packet.msg, '.')))
+                        *(++alarm) = '\0';
+                    else
+                        status_packet.msg[sizeof(status_packet.msg) - 1] = '\0';
+                    msgtype = (msg_type_t)strlen((char *)status_packet.msg);
+                }
+            }
             break;
+//        case STATE_ESTOP:
+//            status_packet.machine_state = MachineState_EStop;
+//            break;
         case STATE_CYCLE:
             status_packet.machine_state = MachineState_Cycle;
             break;
@@ -255,11 +273,6 @@ static void jogdata_changed (jogdata_t *jogdata)
 
 #endif
 
-static void onOverrideChanged (override_changed_t override)
-{
-    send_now = true;
-}
-
 static void onWCOChanged (void)
 {
     uint_fast8_t idx = min(4, N_AXIS);
@@ -275,7 +288,6 @@ static void onWCOChanged (void)
 
     send_now = true;
     msgtype = MachineMsg_WorkOffset;
-
 }
 
 static void onGCodeMessage (char *msg)
@@ -292,17 +304,133 @@ static void onGCodeMessage (char *msg)
     send_now = true;
 }
 
+static status_code_t onStatusMessageReport (status_code_t status_code)
+{
+    if(status_message)
+        status_code = status_message(status_code);
+/*
+    char *error;
+    if(status_code == Status_OK && status_packet.status_code != status_code)
+        msgtype = MachineMsg_ClearMessage; // empty string
+
+    else if(status_code != Status_OK &&
+             status_code != status_packet.status_code &&
+              (error = (char *)errors_get_description(status_code))) {
+        strncpy((char *)status_packet.msg, error, sizeof(status_packet.msg) - 1);
+        if((error = strchr((char *)status_packet.msg, '.')))
+            *(++error) = '\0';
+        else
+            status_packet.msg[sizeof(status_packet.msg) - 1] = '\0';
+        msgtype = (msg_type_t)strlen((char *)status_packet.msg);
+    }
+*/
+    status_packet.status_code = status_code;
+
+    return status_code;
+}
+
+/*
+static message_code_t onFeedbackMessageReport (message_code_t message_code)
+{
+    if(feedback_message)
+        message_code = feedback_message(message_code);
+
+    char *message;
+    if(message_code == Message_None)
+        msgtype = MachineMsg_ClearMessage; // empty string
+
+    else if((message = (char *)message_get(message_code)->text)) {
+        strncpy((char *)status_packet.msg, message, sizeof(status_packet.msg) - 1);
+        status_packet.msg[sizeof(status_packet.msg) - 1] = '\0';
+        msgtype = (msg_type_t)strlen((char *)status_packet.msg);
+    }
+
+    return message_code;
+}
+*/
+
+static void add_reports (report_tracking_flags_t report)
+{
+    if(report.coolant)
+        status_packet.coolant_state = hal.coolant.get_state();
+
+    if(report.spindle) {
+        spindle_ptrs_t *spindle = spindle_get(0);
+        status_packet.spindle_state = spindle->get_state();
+    }
+
+    if(report.overrides) {
+        spindle_ptrs_t *spindle = spindle_get(0);
+        msgtype = MachineMsg_Overrides;
+        status_packet.feed_override = sys.override.feed_rate > 255 ? 255 : sys.override.feed_rate;
+        status_packet.spindle_override = spindle->param->override_pct > 255 ? 255 : spindle->param->override_pct;
+        status_packet.spindle_stop = sys.override.spindle_stop.value;
+    }
+
+    if(report.wco)
+        status_packet.current_wcs = gc_state.modal.coord_system.id;
+
+    if(report.homed) {
+        axes_signals_t homing = {sys.homing.mask ? sys.homing.mask : AXES_BITMASK};
+        status_packet.home_state.mask = sys.homing.mask & sys.homed.mask;
+        status_packet.machine_modes.homed = (homing.mask & sys.homed.mask) == homing.mask;
+    }
+
+    if(report.tlo_reference)
+        status_packet.machine_modes.tlo_referenced = sys.tlo_reference_set.mask != 0;
+
+    if(report.xmode)
+        status_packet.machine_modes.diameter = gc_state.modal.diameter_mode;
+
+    if(report.mpg_mode)
+        status_packet.machine_modes.mpg = sys.mpg_mode;
+}
+
+static void onRealtimeReportsAdded (report_tracking_flags_t report)
+{
+    if(on_rt_reports_added)
+        on_rt_reports_added(report);
+
+    add_reports(report);
+}
+
+static void onReportHandlersInit (void)
+{
+    if(on_report_handlers_init)
+        on_report_handlers_init();
+
+    status_message = grbl.report.status_message;
+    grbl.report.status_message = onStatusMessageReport;
+/*
+    feedback_message = grbl.report.feedback_message;
+    grbl.report.feedback_message = onFeedbackMessageReport;
+ */
+}
+
 static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C Display v0.04]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:I2C Display v0.06]" ASCII_EOL);
 }
 
 static void complete_setup (sys_state_t state)
 {
+    report_tracking_flags_t report = {
+        .coolant = On,
+        .spindle = On,
+        .overrides = On,
+        .homed = On,
+        .xmode = On,
+        .mpg_mode = On,
+        .wco = On
+    };
+
     set_state(state);
+    add_reports(report);
+
+    status_packet.machine_modes.mode = settings.mode;
 
     on_execute_delay = grbl.on_execute_delay;
     grbl.on_execute_delay = display_poll_delay;
@@ -326,17 +454,21 @@ void display_init (void)
         on_state_change = grbl.on_state_change;
         grbl.on_state_change = onStateChanged;
 
-        on_override_changed = grbl.on_override_changed;
-        grbl.on_override_changed = onOverrideChanged;
-
         on_wco_changed = grbl.on_wco_changed;
         grbl.on_wco_changed = onWCOChanged;
 
         on_gcode_message = grbl.on_gcode_message;
         grbl.on_gcode_message = onGCodeMessage;
 
+        on_report_handlers_init = grbl.on_report_handlers_init;
+        grbl.on_report_handlers_init = onReportHandlersInit;
+
+        on_rt_reports_added = grbl.on_rt_reports_added;
+        grbl.on_rt_reports_added = onRealtimeReportsAdded;
+
         status_packet.address = 0x01;
         status_packet.msgtype = MachineMsg_None;
+        status_packet.status_code = Status_OK;
     #if N_AXIS == 3
         status_packet.coordinate.a = 0xFFFFFFFF;
     #endif
