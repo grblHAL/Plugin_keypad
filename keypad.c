@@ -182,11 +182,11 @@ static void keypad_process_keypress (sys_state_t state)
         switch(keycode) {
 
             case 'M':                                   // Mist override
-                enqueue_accessory_override(CMD_OVERRIDE_COOLANT_MIST_TOGGLE);
+                enqueue_coolant_override(CMD_OVERRIDE_COOLANT_MIST_TOGGLE);
                 break;
 
             case 'C':                                   // Coolant override
-                enqueue_accessory_override(CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE);
+                enqueue_coolant_override(CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE);
                 break;
 
             case CMD_FEED_HOLD_LEGACY:                  // Feed hold
@@ -246,15 +246,15 @@ static void keypad_process_keypress (sys_state_t state)
                 break;
 
             case 'K':                                  // Spindle RPM coarse override -10%
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_RESET);
+                enqueue_spindle_override(CMD_OVERRIDE_SPINDLE_RESET);
                 break;
 
             case 'k':                                   // Spindle RPM coarse override +10%
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_PLUS);
+                enqueue_spindle_override(CMD_OVERRIDE_SPINDLE_COARSE_PLUS);
                 break;
 
             case 'z':                                   // Spindle RPM fine override +1%
-                enqueue_accessory_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
+                enqueue_spindle_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
                 break;
 
          // Pass most of the top bit set commands trough unmodified
@@ -273,13 +273,16 @@ static void keypad_process_keypress (sys_state_t state)
             case CMD_OVERRIDE_FAN0_TOGGLE:
             case CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE:
             case CMD_OVERRIDE_COOLANT_MIST_TOGGLE:
+                enqueue_coolant_override(keycode);
+                break;
+
             case CMD_OVERRIDE_SPINDLE_RESET:
             case CMD_OVERRIDE_SPINDLE_COARSE_PLUS:
             case CMD_OVERRIDE_SPINDLE_COARSE_MINUS:
             case CMD_OVERRIDE_SPINDLE_FINE_PLUS:
             case CMD_OVERRIDE_SPINDLE_FINE_MINUS:
             case CMD_OVERRIDE_SPINDLE_STOP:
-                enqueue_accessory_override(keycode);
+                enqueue_spindle_override(keycode);
                 break;
 
             case CMD_RESET:
@@ -397,7 +400,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.33]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.34]" ASCII_EOL);
 }
 
 ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
