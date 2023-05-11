@@ -24,6 +24,5 @@
 #define _MACROS_H_
 
 void macros_init (void);
-status_code_t macro_execute (uint8_t macro);
 
 #endif // _MACROS_H_

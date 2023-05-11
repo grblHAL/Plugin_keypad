@@ -1,5 +1,4 @@
 /*
-
   macros.c - plugin for binding macros to aux input pins and/or key codes
 
   Part of grblHAL keypad plugins
@@ -125,26 +124,41 @@ typedef struct {
     macro_setting_t macro[N_MACROS];
 } macro_settings_t;
 
-static bool can_map_ports = false, is_executing = false;
+static bool can_map_ports = false;
 static uint8_t n_ports;
 uint8_t port[N_MACROS];
 static char max_port[4], *command, format[8], max_length[5];
+static macro_id_t macro_id = 0;
 static nvs_address_t nvs_address;
-static on_report_options_ptr on_report_options;
 static macro_settings_t plugin_settings;
+static on_report_options_ptr on_report_options;
+static on_macro_execute_ptr on_macro_execute;
+static on_macro_return_ptr on_macro_return = NULL;
+static status_message_ptr status_message = NULL;
 static stream_read_ptr stream_read;
 static driver_reset_ptr driver_reset;
 
 static int16_t get_macro_char (void);
+static status_code_t trap_status_messages (status_code_t status_code);
 
 // Ends macro execution if currently running
 // and restores normal operation.
 static void end_macro (void)
 {
-    is_executing = false;
-    if(hal.stream.read == get_macro_char) {
+    if(hal.stream.read == get_macro_char)
         hal.stream.read = stream_read;
-        report_init_fns();
+
+    if(macro_id) {
+
+        macro_id = 0;
+
+        grbl.on_macro_return = on_macro_return;
+        on_macro_return = NULL;
+
+        if(grbl.report.status_message == trap_status_messages)
+            grbl.report.status_message = status_message;
+
+        status_message = NULL;
     }
 }
 
@@ -162,9 +176,14 @@ static int16_t get_macro_char (void)
 {
     static bool eol_ok = false;
 
-    if(*command == '\0') {                          // End of macro?
-        end_macro();                                // If end reading from it
-        return eol_ok ? SERIAL_NO_DATA : ASCII_LF;  // and return a linefeed if the last character was not a linefeed.
+    if(*command == '\0') {          // End of macro?
+        if(eol_ok) {
+            end_macro();            // Done
+            return SERIAL_NO_DATA;  // ...
+        }
+        eol_ok = true;
+
+        return ASCII_LF;  // Return a linefeed if the last character was not a linefeed.
     }
 
     char c = *command++;    // Get next character.
@@ -175,14 +194,23 @@ static int16_t get_macro_char (void)
     return (uint16_t)c;
 }
 
-// This code will be executed after each command is sent to the parser,
 // If an error is detected macro execution will be stopped and the status_code reported.
-static status_code_t trap_status_report (status_code_t status_code)
+static status_code_t trap_status_messages (status_code_t status_code)
 {
-    if(status_code != Status_OK) {
+    if(hal.stream.read != get_macro_char)
+        status_code = status_message(status_code);
+
+    else if(status_code != Status_OK) {
+
         char msg[30];
         sprintf(msg, "error %d in macro", (uint8_t)status_code);
         report_message(msg, Message_Warning);
+
+        hal.stream.read = stream_read; // restore origial input stream
+
+        if(grbl.report.status_message == trap_status_messages && (grbl.report.status_message = status_message))
+            status_code = grbl.report.status_message(status_code);
+
         end_macro();
     }
 
@@ -193,24 +221,33 @@ static status_code_t trap_status_report (status_code_t status_code)
 static void run_macro (uint_fast16_t state)
 {
     if(state == STATE_IDLE && hal.stream.read != get_macro_char) {
+
         stream_read = hal.stream.read;                      // Redirect input stream to read from the macro instead of
         hal.stream.read = get_macro_char;                   // the active stream. This ensures that input streams are not mingled.
-        grbl.report.status_message = trap_status_report;    // Add trap for status messages so we can terminate on errors.
-    }
+
+        status_message = grbl.report.status_message;        // Add trap for status messages
+        grbl.report.status_message = trap_status_messages;  // so we can terminate on errors.
+
+        on_macro_return = grbl.on_macro_return;
+        grbl.on_macro_return = end_macro;
+    } else
+        macro_id = 0;
 }
 
-status_code_t macro_execute (uint8_t macro)
+static status_code_t macro_execute (macro_id_t macro)
 {
     bool ok = false;
     sys_state_t state;
 
-    if(macro <= N_MACROS && (state = state_get()) == STATE_IDLE) {
-        command = plugin_settings.macro[macro].data;
-        if((ok = !(*command == '\0' || *command == 0xFF)))
+    if(macro_id == 0 && macro > 0 && macro <= N_MACROS && (state = state_get()) == STATE_IDLE) {
+        command = plugin_settings.macro[macro - 1].data;
+        if((ok = !(*command == '\0' || *command == 0xFF))) {
+            macro_id = macro;
             run_macro(state);
+        }
     }
 
-    return ok ? Status_OK : Status_Unhandled;
+    return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro) : Status_Unhandled);
 }
 
 #if MACROS_ENABLE & 0x01
@@ -224,9 +261,9 @@ static void no_ports (sys_state_t state)
 // Since this function runs in an interrupt context actual start of execution
 // is registered as a single run task to be started from the foreground process.
 // TODO: add debounce?
-ISR_CODE static void execute_macro (uint8_t irq_port, bool is_high)
+ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
 {
-    if(!is_high && !is_executing && state_get() == STATE_IDLE) {
+    if(!is_high && macro_id == 0 && state_get() == STATE_IDLE) {
 
         // Determine macro to run from port number
         uint_fast8_t idx = N_MACROS;
@@ -234,7 +271,7 @@ ISR_CODE static void execute_macro (uint8_t irq_port, bool is_high)
             idx--;
         } while(idx && port[idx] != irq_port);
 
-        is_executing = true;
+        macro_id = idx + 1;
         command = plugin_settings.macro[idx].data;
         if(!(*command == '\0' || *command == 0xFF))     // If valid command
             protocol_enqueue_rt_command(run_macro);     // register run_macro function to be called from foreground process.
@@ -539,7 +576,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:Macro plugin v0.02]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:Macro plugin v0.03]" ASCII_EOL);
 }
 
 static void warning_msg (uint_fast16_t state)
@@ -585,6 +622,9 @@ void macros_init (void)
         // Add our plugin to the $I options report.
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = report_options;
+
+        on_macro_execute = grbl.on_macro_execute;
+        grbl.on_macro_execute = macro_execute;
 
         // Hook into the driver reset chain so we
         // can restore normal operation if a reset happens
