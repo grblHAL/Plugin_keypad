@@ -135,8 +135,8 @@ static on_report_options_ptr on_report_options;
 static on_macro_execute_ptr on_macro_execute;
 static on_macro_return_ptr on_macro_return = NULL;
 static status_message_ptr status_message = NULL;
-static stream_read_ptr stream_read;
 static driver_reset_ptr driver_reset;
+static io_stream_t active_stream;
 
 static int16_t get_macro_char (void);
 static status_code_t trap_status_messages (status_code_t status_code);
@@ -146,7 +146,7 @@ static status_code_t trap_status_messages (status_code_t status_code);
 static void end_macro (void)
 {
     if(hal.stream.read == get_macro_char)
-        hal.stream.read = stream_read;
+        memcpy(&hal.stream, &active_stream, sizeof(io_stream_t));
 
     if(macro_id) {
 
@@ -206,8 +206,6 @@ static status_code_t trap_status_messages (status_code_t status_code)
         sprintf(msg, "error %d in macro", (uint8_t)status_code);
         report_message(msg, Message_Warning);
 
-        hal.stream.read = stream_read; // restore origial input stream
-
         if(grbl.report.status_message == trap_status_messages && (grbl.report.status_message = status_message))
             status_code = grbl.report.status_message(status_code);
 
@@ -222,8 +220,9 @@ static void run_macro (uint_fast16_t state)
 {
     if(state == STATE_IDLE && hal.stream.read != get_macro_char) {
 
-        stream_read = hal.stream.read;                      // Redirect input stream to read from the macro instead of
-        hal.stream.read = get_macro_char;                   // the active stream. This ensures that input streams are not mingled.
+        memcpy(&active_stream, &hal.stream, sizeof(io_stream_t));   // Redirect input stream to read from the macro instead
+        hal.stream.read = get_macro_char;                           // the active stream. This ensures that input streams are not mingled.
+        hal.stream.file = NULL;                                     // Input stream is not file based.
 
         status_message = grbl.report.status_message;        // Add trap for status messages
         grbl.report.status_message = trap_status_messages;  // so we can terminate on errors.
@@ -576,7 +575,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:Macro plugin v0.03]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:Macro plugin v0.04]" ASCII_EOL);
 }
 
 static void warning_msg (uint_fast16_t state)
