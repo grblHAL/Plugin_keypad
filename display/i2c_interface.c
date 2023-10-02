@@ -55,7 +55,7 @@
 #endif
 
 static uint8_t msgtype = 0; // TODO: create a queue?
-static bool send_now = false;
+static bool send_now = false, connected = false;
 static on_state_change_ptr on_state_change;
 static on_report_options_ptr on_report_options;
 static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
@@ -412,7 +412,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C Display v0.06]" ASCII_EOL);
+        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.07]" ASCII_EOL : "[PLUGIN:I2C Display v0.07 (not connected)]" ASCII_EOL);
 }
 
 static void complete_setup (sys_state_t state)
@@ -446,7 +446,9 @@ void display_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    if(i2c_probe(DISPLAY_I2CADDR)) {
+    hal.delay_ms(10, NULL);
+
+    if((connected = i2c_probe(DISPLAY_I2CADDR))) {
 
         on_execute_realtime = grbl.on_execute_realtime;
         grbl.on_execute_realtime = display_poll_realtime;
