@@ -412,7 +412,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.07]" ASCII_EOL : "[PLUGIN:I2C Display v0.07 (not connected)]" ASCII_EOL);
+        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.08]" ASCII_EOL : "[PLUGIN:I2C Display v0.08 (not connected)]" ASCII_EOL);
 }
 
 static void complete_setup (sys_state_t state)
@@ -446,7 +446,7 @@ void display_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    hal.delay_ms(10, NULL);
+    hal.delay_ms(510, NULL);
 
     if((connected = i2c_probe(DISPLAY_I2CADDR))) {
 
