@@ -109,9 +109,9 @@ static void onStateChanged (sys_state_t state)
         on_state_change(state);
 }
 
-static void onSpindleSetState (spindle_state_t state, float rpm)
+static void onSpindleSetState (spindle_ptrs_t *spindle, spindle_state_t state, float rpm)
 {
-    spindle_set_state_(state, rpm);
+    spindle_set_state_(spindle, state, rpm);
 
     leds.spindle = state.on;
     leds_write(leds);
@@ -139,7 +139,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C LEDS v0.02]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:I2C LEDS v0.03]" ASCII_EOL);
 }
 
 static void warn_unavailable (sys_state_t state)
