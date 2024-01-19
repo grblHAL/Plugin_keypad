@@ -40,6 +40,7 @@
 #ifdef ARDUINO
 #include "../../grbl/plugins.h"
 #include "../../grbl/protocol.h"
+#include "../../grbl/state_machine.h"
 #else
 #include "grbl/plugins.h"
 #include "grbl/protocol.h"
@@ -356,7 +357,7 @@ static void add_reports (report_tracking_flags_t report)
 
     if(report.spindle) {
         spindle_ptrs_t *spindle = spindle_get(0);
-        status_packet.spindle_state = spindle->get_state();
+        status_packet.spindle_state = spindle->get_state(spindle);
     }
 
     if(report.overrides) {
@@ -412,7 +413,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.08]" ASCII_EOL : "[PLUGIN:I2C Display v0.08 (not connected)]" ASCII_EOL);
+        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.09]" ASCII_EOL : "[PLUGIN:I2C Display v0.09 (not connected)]" ASCII_EOL);
 }
 
 static void complete_setup (sys_state_t state)
