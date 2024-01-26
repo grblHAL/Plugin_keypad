@@ -416,7 +416,7 @@ static void onReportOptions (bool newopt)
         hal.stream.write(connected ? "[PLUGIN:I2C Display v0.09]" ASCII_EOL : "[PLUGIN:I2C Display v0.09 (not connected)]" ASCII_EOL);
 }
 
-static void complete_setup (sys_state_t state)
+static void complete_setup (void *data)
 {
     report_tracking_flags_t report = {
         .coolant = On,
@@ -428,18 +428,13 @@ static void complete_setup (sys_state_t state)
         .wco = On
     };
 
-    set_state(state);
+    set_state(state_get());
     add_reports(report);
 
     status_packet.machine_modes.mode = settings.mode;
 
     on_execute_delay = grbl.on_execute_delay;
     grbl.on_execute_delay = display_poll_delay;
-}
-
-static void warn_unavailable (sys_state_t state)
-{
-    report_message("I2C display not connected!", Message_Warning);
 }
 
 void display_init (void)
@@ -477,7 +472,7 @@ void display_init (void)
     #endif
 
         // delay final setup until startup is complete
-        protocol_enqueue_rt_command(complete_setup);
+        protocol_enqueue_foreground_task(complete_setup, NULL);
 
 #if KEYPAD_ENABLE
 
@@ -490,7 +485,7 @@ void display_init (void)
 #endif
 
     } else
-        protocol_enqueue_rt_command(warn_unavailable);
+        protocol_enqueue_foreground_task(report_warning, "I2C display not connected!");
 }
 
 #endif // DISPLAY_ENABLE

@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2021-2023 Terje Io
+  Copyright (c) 2021-2024 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -216,9 +216,9 @@ static status_code_t trap_status_messages (status_code_t status_code)
 }
 
 // Actual start of macro execution.
-static void run_macro (uint_fast16_t state)
+static void run_macro (void *data)
 {
-    if(state == STATE_IDLE && hal.stream.read != get_macro_char) {
+    if(state_get() == STATE_IDLE && hal.stream.read != get_macro_char) {
 
         memcpy(&active_stream, &hal.stream, sizeof(io_stream_t));   // Redirect input stream to read from the macro instead
         hal.stream.read = get_macro_char;                           // the active stream. This ensures that input streams are not mingled.
@@ -236,13 +236,12 @@ static void run_macro (uint_fast16_t state)
 static status_code_t macro_execute (macro_id_t macro)
 {
     bool ok = false;
-    sys_state_t state;
 
-    if(macro_id == 0 && macro > 0 && macro <= N_MACROS && (state = state_get()) == STATE_IDLE) {
+    if(macro_id == 0 && macro > 0 && macro <= N_MACROS && state_get() == STATE_IDLE) {
         command = plugin_settings.macro[macro - 1].data;
         if((ok = !(*command == '\0' || *command == 0xFF))) {
             macro_id = macro;
-            run_macro(state);
+            run_macro(NULL);
         }
     }
 
@@ -250,11 +249,6 @@ static status_code_t macro_execute (macro_id_t macro)
 }
 
 #if MACROS_ENABLE & 0x01
-
-static void no_ports (sys_state_t state)
-{
-    report_message("Macro plugin failed to claim all needed ports!", Message_Warning);
-}
 
 // On falling interrupt run macro if machine is in Idle state.
 // Since this function runs in an interrupt context actual start of execution
@@ -272,8 +266,8 @@ ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
 
         macro_id = idx + 1;
         command = plugin_settings.macro[idx].data;
-        if(!(*command == '\0' || *command == 0xFF))     // If valid command
-            protocol_enqueue_rt_command(run_macro);     // register run_macro function to be called from foreground process.
+        if(!(*command == '\0' || *command == 0xFF))             // If valid command
+            protocol_enqueue_foreground_task(run_macro, NULL);  // register run_macro function to be called from foreground process.
     }
 }
 
@@ -330,7 +324,7 @@ static bool keypress_preview (const char c, uint_fast16_t state)
     if(macro != -1) {
         command = plugin_settings.macro[macro].data;
         if(!(*command == '\0' || *command == 0xFF)) // If valid command
-            run_macro(state);                       // run macro.
+            run_macro(NULL);                        // run macro.
     }
 
     return macro != -1 || (on_keypress_preview && on_keypress_preview(c, state));
@@ -550,7 +544,7 @@ static void macro_settings_load (void)
     } while(idx);
 
     if(n_ok < N_MACROS)
-        protocol_enqueue_rt_command(no_ports);
+        protocol_enqueue_foreground_task(report_warning, "Macro plugin failed to claim all needed ports!");
 #endif
 }
 
@@ -575,12 +569,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:Macro plugin v0.04]" ASCII_EOL);
-}
-
-static void warning_msg (uint_fast16_t state)
-{
-    report_message("Macro plugin failed to initialize!", Message_Warning);
+        hal.stream.write("[PLUGIN:Macro plugin v0.05]" ASCII_EOL);
 }
 
 void macros_init (void)
@@ -635,7 +624,7 @@ void macros_init (void)
         strcat(strcat(strcpy(format, "x("), max_length), ")");
 
     } else
-        protocol_enqueue_rt_command(warning_msg);
+        protocol_enqueue_foreground_task(report_warning, "Macro plugin failed to initialize!");
 }
 
 #endif // MACROS_ENABLE

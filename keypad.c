@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2017-2023 Terje Io
+  Copyright (c) 2017-2024 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -166,10 +166,11 @@ static void jog_command (char *cmd, char *to)
     strcat(strcpy(cmd, "$J=G91G21"), to);
 }
 
-static void keypad_process_keypress (sys_state_t state)
+static void keypad_process_keypress (void *data)
 {
     bool addedGcode, jogCommand = false;
     char command[35] = "", keycode = keypad_get_keycode();
+    sys_state_t state = state_get();
 
     if(state == STATE_ESTOP && keycode != CMD_RESET)
         return;
@@ -400,7 +401,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.34]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.35]" ASCII_EOL);
 }
 
 ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
@@ -425,7 +426,7 @@ ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
         keyreleased = false;
         // Tell foreground process to process keycode
         if(nvs_address != 0)
-            protocol_enqueue_rt_command(keypad_process_keypress);
+            protocol_enqueue_foreground_task(keypad_process_keypress, NULL);
     }
 
     return true;
@@ -442,7 +443,7 @@ ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
         keybuf.head = bptr;             // and update pointer
         // Tell foreground process to process keycode
         if(nvs_address != 0)
-            protocol_enqueue_rt_command(keypad_process_keypress);
+            protocol_enqueue_foreground_task(keypad_process_keypress, NULL);
     }
 }
 

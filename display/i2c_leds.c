@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2023 Terje Io
+  Copyright (c) 2023-2024 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -29,8 +29,10 @@
 
 #ifdef ARDUINO
 #include "../../grbl/plugins.h"
+#include "../../grbl/protocol.h"
 #else
 #include "grbl/plugins.h"
+#include "grbl/protocol.h"
 #endif
 
 #ifndef DISPLAY2_PCA9654E
@@ -139,12 +141,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C LEDS v0.03]" ASCII_EOL);
-}
-
-static void warn_unavailable (sys_state_t state)
-{
-    report_message("I2C LEDs not connected!", Message_Warning);
+        hal.stream.write("[PLUGIN:I2C LEDS v0.04]" ASCII_EOL);
 }
 
 void display_init (void)
@@ -176,7 +173,7 @@ void display_init (void)
 #endif
 
     } else
-        protocol_enqueue_rt_command(warn_unavailable);
+        protocol_enqueue_foreground_task(report_warning, "I2C LEDs not connected!");
 }
 
 #endif
