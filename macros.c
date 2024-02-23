@@ -5,18 +5,18 @@
 
   Copyright (c) 2021-2024 Terje Io
 
-  Grbl is free software: you can redistribute it and/or modify
+  grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Grbl is distributed in the hope that it will be useful,
+  grblHAL is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
   You should have received a copy of the GNU General Public License
-  along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
+  along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
 /*
@@ -125,7 +125,7 @@ typedef struct {
 } macro_settings_t;
 
 static bool can_map_ports = false;
-static uint8_t n_ports;
+static uint8_t n_ports = 0;
 uint8_t port[N_MACROS];
 static char max_port[4], *command, format[8], max_length[5];
 static macro_id_t macro_id = 0;
@@ -569,7 +569,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:Macro plugin v0.05]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:Macro plugin v0.06]" ASCII_EOL);
 }
 
 void macros_init (void)
@@ -600,7 +600,7 @@ void macros_init (void)
         settings_register(&setting_details);
 
         // Used for setting value validation.
-        strcpy(max_port, uitoa(n_ports - 1));
+        strcpy(max_port, uitoa(n_ports ? n_ports - 1 : 0));
 
 #if MACROS_ENABLE & 0x02
         on_keypress_preview = keypad.on_keypress_preview;

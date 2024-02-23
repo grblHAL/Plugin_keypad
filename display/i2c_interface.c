@@ -56,10 +56,9 @@
 #endif
 
 static uint8_t msgtype = 0; // TODO: create a queue?
-static bool send_now = false, connected = false;
+static bool connected = false;
 static on_state_change_ptr on_state_change;
 static on_report_options_ptr on_report_options;
-static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
 static on_gcode_message_ptr on_gcode_message;
 static on_wco_changed_ptr on_wco_changed;
 static on_rt_reports_added_ptr on_rt_reports_added;
@@ -74,6 +73,7 @@ static on_jogdata_changed_ptr on_jogdata_changed;
 
 #define SEND_STATUS_DELAY 300
 #define SEND_STATUS_JOG_DELAY 100
+#define SEND_STATUS_NOW_DELAY 20
 
 static machine_status_packet_t status_packet, prev_status = {0};
 
@@ -186,46 +186,26 @@ static void set_state (sys_state_t state)
     }
 }
 
+static void display_update (void *data)
+{
+    send_status_info();
+    //send more often during manual jogging
+    task_add_delayed(display_update, NULL, state_get() == STATE_JOG ? SEND_STATUS_JOG_DELAY : SEND_STATUS_DELAY);
+}
+
+static void display_update_now (void)
+{
+    task_delete(display_update, NULL);
+    task_add_delayed(display_update, NULL, SEND_STATUS_NOW_DELAY); // wait a bit before updating in order not to spam the port
+}
+
 static void onStateChanged (sys_state_t state)
 {
     set_state(state);
-    send_now = true;
+    display_update_now();
 
     if(on_state_change)
         on_state_change(state);
-}
-
-static void display_poll (sys_state_t state)
-{
-    static uint32_t last_ms;
-
-    uint32_t ms = hal.get_elapsed_ticks();
-
-    // don't spam the port - wait at least 10ms after previous send
-    if(send_now && ms - last_ms >= 10) {
-        send_status_info();
-        last_ms = ms;
-        send_now = false;
-        return;
-    }
-
-    //check more often during manual jogging
-    if(ms - last_ms >= (state == STATE_JOG ? SEND_STATUS_JOG_DELAY : SEND_STATUS_DELAY)) {
-        send_status_info();
-        last_ms = ms;
-    }
-}
-
-static void display_poll_realtime (sys_state_t state)
-{
-    on_execute_realtime(state);
-    display_poll(state);
-}
-
-static void display_poll_delay (sys_state_t state)
-{
-    on_execute_delay(state);
-    display_poll(state);
 }
 
 #if KEYPAD_ENABLE
@@ -234,12 +214,12 @@ static bool keypress_preview (char keycode, sys_state_t state)
 {
     switch(keycode) {
 
-        case '?':                                    // pendant attach
+        case '?':               // pendant attach
         case CMD_SAFETY_DOOR:
         case CMD_OPTIONAL_STOP_TOGGLE:
         case CMD_SINGLE_BLOCK_TOGGLE:
         case CMD_PROBE_CONNECTED_TOGGLE:
-            send_now = true;
+            display_update_now();
             break;
     }
 
@@ -269,7 +249,7 @@ static void jogdata_changed (jogdata_t *jogdata)
             break;
     }
 
-    send_now = true;
+    display_update_now();
 }
 
 #endif
@@ -287,7 +267,8 @@ static void onWCOChanged (void)
         wco->values[idx] = gc_get_offset(idx);
     } while(idx);
 
-    send_now = true;
+    display_update_now();
+
     msgtype = MachineMsg_WorkOffset;
 }
 
@@ -302,7 +283,7 @@ static void onGCodeMessage (char *msg)
     else
         strncpy((char *)status_packet.msg, msg, msgtype);
 
-    send_now = true;
+    display_update_now();
 }
 
 static status_code_t onStatusMessageReport (status_code_t status_code)
@@ -413,7 +394,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.09]" ASCII_EOL : "[PLUGIN:I2C Display v0.09 (not connected)]" ASCII_EOL);
+        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.10]" ASCII_EOL : "[PLUGIN:I2C Display v0.10 (not connected)]" ASCII_EOL);
 }
 
 static void complete_setup (void *data)
@@ -433,8 +414,7 @@ static void complete_setup (void *data)
 
     status_packet.machine_modes.mode = settings.mode;
 
-    on_execute_delay = grbl.on_execute_delay;
-    grbl.on_execute_delay = display_poll_delay;
+    task_add_delayed(display_update, NULL, SEND_STATUS_DELAY);
 }
 
 void display_init (void)
@@ -445,9 +425,6 @@ void display_init (void)
     hal.delay_ms(510, NULL);
 
     if((connected = i2c_probe(DISPLAY_I2CADDR))) {
-
-        on_execute_realtime = grbl.on_execute_realtime;
-        grbl.on_execute_realtime = display_poll_realtime;
 
         on_state_change = grbl.on_state_change;
         grbl.on_state_change = onStateChanged;
