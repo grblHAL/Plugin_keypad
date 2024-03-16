@@ -190,11 +190,11 @@ static void keypad_process_keypress (void *data)
                 enqueue_coolant_override(CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE);
                 break;
 
-            case CMD_FEED_HOLD_LEGACY:                  // Feed hold
+            case CMD_FEED_HOLD :                  // Feed hold
                 grbl.enqueue_realtime_command(CMD_FEED_HOLD);
                 break;
 
-            case CMD_CYCLE_START_LEGACY:                // Cycle start
+            case CMD_CYCLE_START :                // Cycle start Legacy '~' is 0x7E, same as macro function
                 grbl.enqueue_realtime_command(CMD_CYCLE_START);
                 break;
 
