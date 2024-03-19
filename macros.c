@@ -41,7 +41,7 @@
 #include "driver.h"
 #endif
 
-#if MACROS_ENABLE
+#if MACROS_ENABLE && MACROS_ENABLE <= 3
 
 #include <stdio.h>
 #include <string.h>
@@ -572,7 +572,7 @@ static void report_options (bool newopt)
         hal.stream.write("[PLUGIN:Macro plugin v0.06]" ASCII_EOL);
 }
 
-void macros_init (void)
+void xmacros_init (void)
 {
 #if MACROS_ENABLE & 0x01
     bool ok = (n_ports = ioports_available(Port_Digital, Port_Input)) > N_MACROS;
