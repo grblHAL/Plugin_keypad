@@ -572,7 +572,7 @@ static void report_options (bool newopt)
         hal.stream.write("[PLUGIN:Macro plugin v0.06]" ASCII_EOL);
 }
 
-void xmacros_init (void)
+void macros_init (void)
 {
 #if MACROS_ENABLE & 0x01
     bool ok = (n_ports = ioports_available(Port_Digital, Port_Input)) > N_MACROS;
