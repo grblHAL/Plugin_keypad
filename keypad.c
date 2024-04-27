@@ -172,7 +172,7 @@ static void keypad_process_keypress (void *data)
     char command[35] = "", keycode = keypad_get_keycode();
     sys_state_t state = state_get();
 
-    if(state == STATE_ESTOP && keycode != CMD_RESET)
+    if(state == STATE_ESTOP && !(keycode == CMD_RESET || keycode == CMD_MPG_MODE_TOGGLE))
         return;
 
     if(keycode) {
@@ -190,8 +190,14 @@ static void keypad_process_keypress (void *data)
                 enqueue_coolant_override(CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE);
                 break;
 
-            case CMD_FEED_HOLD_LEGACY:                  // Feed hold
+            case CMD_FEED_HOLD:                         // Feed hold
+            case CMD_FEED_HOLD_LEGACY:
                 grbl.enqueue_realtime_command(CMD_FEED_HOLD);
+                break;
+
+            case CMD_CYCLE_START:                       // Cycle start
+                if(grbl.enqueue_realtime_command(CMD_CYCLE_START))
+                    sys.report.cycle_start = settings.status_report.pin_state;
                 break;
 
             case CMD_CYCLE_START_LEGACY:                // Cycle start
@@ -401,7 +407,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.35]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.36]" ASCII_EOL);
 }
 
 ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
