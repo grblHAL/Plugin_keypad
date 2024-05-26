@@ -1,22 +1,22 @@
 /*
-  keypad.c - I2C keypad plugin
+  keypad.c - I2C/UART keypad plugin
 
   Part of grblHAL keypad plugins
 
   Copyright (c) 2017-2024 Terje Io
 
-  Grbl is free software: you can redistribute it and/or modify
+  grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Grbl is distributed in the hope that it will be useful,
+  grblHAL is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
   You should have received a copy of the GNU General Public License
-  along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
+  along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
 
@@ -26,7 +26,7 @@
 #include "driver.h"
 #endif
 
-#if KEYPAD_ENABLE
+#if KEYPAD_ENABLE > 0 && KEYPAD_ENABLE <= 2
 
 #include <string.h>
 
@@ -172,7 +172,12 @@ static void keypad_process_keypress (void *data)
     char command[35] = "", keycode = keypad_get_keycode();
     sys_state_t state = state_get();
 
-    if(state == STATE_ESTOP && !(keycode == CMD_RESET || keycode == CMD_MPG_MODE_TOGGLE))
+    if(state & (STATE_ESTOP|STATE_ALARM) &&
+    	!(keycode == CMD_STATUS_REPORT ||
+		   keycode == CMD_STATUS_REPORT_LEGACY ||
+		    keycode == CMD_RESET ||
+			 keycode == CMD_MPG_MODE_TOGGLE ||
+			  keycode == 'X' || keycode == 'H'))
         return;
 
     if(keycode) {
@@ -294,6 +299,8 @@ static void keypad_process_keypress (void *data)
 
             case CMD_RESET:
             case CMD_SAFETY_DOOR:
+            case CMD_STATUS_REPORT:
+            case CMD_STATUS_REPORT_LEGACY:
             case CMD_OPTIONAL_STOP_TOGGLE:
             case CMD_SINGLE_BLOCK_TOGGLE:
             case CMD_PROBE_CONNECTED_TOGGLE:
@@ -407,7 +414,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.36]" ASCII_EOL);
+        hal.stream.write("[PLUGIN:KEYPAD v1.37]" ASCII_EOL);
 }
 
 ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
@@ -419,7 +426,7 @@ ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
         return true;
 #endif
 
-    if(c == CMD_JOG_CANCEL || c == ASCII_CAN) {
+    if(c == CMD_JOG_CANCEL || (c == ASCII_CAN && !(state_get() & (STATE_ESTOP|STATE_ALARM)))) {
         keyreleased = true;
         if(jogging) {
             jogging = false;
@@ -432,7 +439,7 @@ ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
         keyreleased = false;
         // Tell foreground process to process keycode
         if(nvs_address != 0)
-            protocol_enqueue_foreground_task(keypad_process_keypress, NULL);
+            task_add_immediate(keypad_process_keypress, NULL);
     }
 
     return true;
@@ -449,7 +456,7 @@ ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
         keybuf.head = bptr;             // and update pointer
         // Tell foreground process to process keycode
         if(nvs_address != 0)
-            protocol_enqueue_foreground_task(keypad_process_keypress, NULL);
+            task_add_immediate(keypad_process_keypress, NULL);
     }
 }
 
@@ -485,7 +492,7 @@ bool keypad_init (void)
     return nvs_address != 0;
 }
 
-#else
+#else // KEYPAD_ENABLE == 2
 
 bool keypad_init (void)
 {
@@ -503,6 +510,6 @@ bool keypad_init (void)
     return nvs_address != 0;
 }
 
-#endif
+#endif // KEYPAD_ENABLE == 2
 
-#endif
+#endif // KEYPAD_ENABLE

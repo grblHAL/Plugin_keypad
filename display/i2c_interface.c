@@ -5,18 +5,18 @@
 
   Copyright (c) 2023 Andrew Marles
 
-  Grbl is free software: you can redistribute it and/or modify
+  grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Grbl is distributed in the hope that it will be useful,
+  grblHAL is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
   You should have received a copy of the GNU General Public License
-  along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
+  along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
 
@@ -86,7 +86,9 @@ static void send_status_info (void)
     do {
         idx--;
         // Apply work coordinate offsets and tool length offset to current position.
-        status_packet.coordinate.values[idx] -= gc_get_offset(idx);
+        // TODO: figure out if realtime positions should be reported instead,
+        //       onWCOChanged() must be changed accordingly if so?
+        status_packet.coordinate.values[idx] -= gc_get_offset(idx, false);
     } while(idx);
 
     spindle_ptrs_t *spindle = spindle_get(0);
@@ -264,7 +266,7 @@ static void onWCOChanged (void)
 
     do {
         idx--;
-        wco->values[idx] = gc_get_offset(idx);
+        wco->values[idx] = gc_get_offset(idx, false);
     } while(idx);
 
     display_update_now();
@@ -394,7 +396,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.10]" ASCII_EOL : "[PLUGIN:I2C Display v0.10 (not connected)]" ASCII_EOL);
+        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.11]" ASCII_EOL : "[PLUGIN:I2C Display v0.11 (not connected)]" ASCII_EOL);
 }
 
 static void complete_setup (void *data)
