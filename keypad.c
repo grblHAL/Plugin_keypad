@@ -414,35 +414,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.37]" ASCII_EOL);
-}
-
-ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
-{
-    uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
-
-#if MPG_MODE != 2
-    if(c == CMD_MPG_MODE_TOGGLE)
-        return true;
-#endif
-
-    if(c == CMD_JOG_CANCEL || (c == ASCII_CAN && !(state_get() & (STATE_ESTOP|STATE_ALARM)))) {
-        keyreleased = true;
-        if(jogging) {
-            jogging = false;
-            grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
-        }
-        keybuf.tail = keybuf.head;      // Flush keycode buffer.
-    } else if(bptr != keybuf.tail) {    // If not buffer full
-        keybuf.buf[keybuf.head] = c;    // add data to buffer
-        keybuf.head = bptr;             // and update pointer.
-        keyreleased = false;
-        // Tell foreground process to process keycode
-        if(nvs_address != 0)
-            task_add_immediate(keypad_process_keypress, NULL);
-    }
-
-    return true;
+        hal.stream.write("[PLUGIN:KEYPAD v1.38]" ASCII_EOL);
 }
 
 #if KEYPAD_ENABLE == 1
@@ -494,17 +466,51 @@ bool keypad_init (void)
 
 #else // KEYPAD_ENABLE == 2
 
+static ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
+{
+    uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
+
+#if MPG_ENABLE && defined(MPG_STREAM) && MPG_STREAM != KEYPAD_STREAM
+    if(c == CMD_MPG_MODE_TOGGLE)
+        return true;
+#endif
+
+    if(c == CMD_JOG_CANCEL || (c == ASCII_CAN && !(state_get() & (STATE_ESTOP|STATE_ALARM)))) {
+        keyreleased = true;
+        if(jogging) {
+            jogging = false;
+            grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
+        }
+        keybuf.tail = keybuf.head;      // Flush keycode buffer.
+    } else if(bptr != keybuf.tail) {    // If not buffer full
+        keybuf.buf[keybuf.head] = c;    // add data to buffer
+        keybuf.head = bptr;             // and update pointer.
+        keyreleased = false;
+        // Tell foreground process to process keycode
+        if(nvs_address != 0)
+            task_add_immediate(keypad_process_keypress, NULL);
+    }
+
+    return true;
+}
+
 bool keypad_init (void)
 {
     if((nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
 
-        on_report_options = grbl.on_report_options;
-        grbl.on_report_options = onReportOptions;
+#if MPG_ENABLE && defined(MPG_STREAM) && MPG_STREAM == KEYPAD_STREAM
+        if((hal.driver_cap.mpg_mode = stream_mpg_register(stream_open_instance(KEYPAD_STREAM, 115200, NULL, NULL), false, keypad_enqueue_keycode))) {
+#else
+        if(stream_open_instance(KEYPAD_STREAM, 115200, keypad_enqueue_keycode, "Keypad")) {
+#endif
+            on_report_options = grbl.on_report_options;
+            grbl.on_report_options = onReportOptions;
 
-        settings_register(&setting_details);
+            settings_register(&setting_details);
 
-        if(keypad.on_jogmode_changed)
-            keypad.on_jogmode_changed(jogMode);
+            if(keypad.on_jogmode_changed)
+                keypad.on_jogmode_changed(jogMode);
+        }
     }
 
     return nvs_address != 0;
