@@ -499,21 +499,33 @@ static void macro_settings_restore (void)
 #ifdef MACRO_1_AUXIN
             case 0:
                 plugin_settings.macro[idx].port = MACRO_1_AUXIN;
+  #ifdef MACRO_1_BUTTONACTION
+                plugin_settings.macro[idx].action_idx = MACRO_1_BUTTONACTION;
+  #endif
                 break;
 #endif
 #ifdef MACRO_2_AUXIN
             case 1:
                 plugin_settings.macro[idx].port = MACRO_2_AUXIN;
+  #ifdef MACRO_2_BUTTONACTION
+              plugin_settings.macro[idx].action_idx = MACRO_2_BUTTONACTION;
+  #endif
                 break;
 #endif
 #ifdef MACRO_3_AUXIN
             case 2:
                 plugin_settings.macro[idx].port = MACRO_3_AUXIN;
+  #ifdef MACRO_3_BUTTONACTION
+              plugin_settings.macro[idx].action_idx = MACRO_3_BUTTONACTION;
+  #endif
                 break;
 #endif
 #ifdef MACRO_4_AUXIN
             case 3:
                 plugin_settings.macro[idx].port = MACRO_4_AUXIN;
+  #ifdef MACRO_4_BUTTONACTION
+              plugin_settings.macro[idx].action_idx = MACRO_4_BUTTONACTION;
+  #endif
                 break;
 #endif
             default:
@@ -608,7 +620,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:Macro plugin v0.07]" ASCII_EOL);
+        report_plugin("Macro plugin", "0.08");
 }
 
 void macros_init (void)
