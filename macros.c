@@ -165,7 +165,6 @@ typedef struct {
     macro_setting_t macro[N_MACROS];
 } macro_settings_t;
 
-static bool can_map_ports = false;
 static uint8_t n_ports = 0;
 static uint8_t port[N_MACROS];
 static char max_port[4], *command, format[8], max_length[5];
@@ -308,10 +307,11 @@ ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
         if(plugin_settings.macro[idx].action_idx)
             grbl.enqueue_realtime_command(action[plugin_settings.macro[idx].action_idx]);
         else if(state_get() == STATE_IDLE) {
-            macro_id = idx + 1;
             command = plugin_settings.macro[idx].data;
-            if(!(*command == '\0' || *command == 0xFF))             // If valid command
+            if(!(*command == '\0' || *command == 0xFF)) {           // If valid command
+                macro_id = idx + 1;
                 protocol_enqueue_foreground_task(run_macro, NULL);  // register run_macro function to be called from foreground process.
+            }
         }
     }
 }
@@ -423,10 +423,6 @@ static status_code_t macro_set_int (setting_id_t setting, uint_fast16_t value)
 
     if(idx < n_macros) switch(setting) {
 
-        case Setting_MacroPortBase:
-            plugin_settings.macro[idx].port = value;
-            break;
-
         case Setting_ButtonActionBase:
             plugin_settings.macro[idx].action_idx = value;
             break;
@@ -447,10 +443,6 @@ static uint_fast16_t macro_get_int (setting_id_t setting)
 
     if(idx < n_macros) switch(setting) {
 
-        case Setting_MacroPortBase:
-            value = plugin_settings.macro[idx].port;
-            break;
-
         case Setting_ButtonActionBase:
             value = plugin_settings.macro[idx].action_idx;
             break;
@@ -462,29 +454,45 @@ static uint_fast16_t macro_get_int (setting_id_t setting)
     return value;
 }
 
-#endif
-
-static bool is_setting_available (const setting_detail_t *setting)
+static status_code_t set_port (setting_id_t setting, float value)
 {
-#if MACROS_ENABLE & 0x01
-  #ifdef MACRO_1_AUXIN_PIN
-    return false;
-  #else
     uint_fast16_t idx;
 
-    normalize_id(setting->id, &idx);
+    if(!isintf(value))
+        return Status_BadNumberFormat;
 
-    return can_map_ports && idx < N_MACROS;
-  #endif
+    setting = normalize_id(setting, &idx);
+
+    plugin_settings.macro[idx].port = value < 0.0f ? 0xFF : (uint8_t)value;
+
+    return Status_OK;
+}
+
+static float get_port (setting_id_t setting)
+{
+    uint_fast16_t idx;
+
+    setting = normalize_id(setting, &idx);
+
+    return plugin_settings.macro[idx].port >= n_ports ? -1.0f : (float)plugin_settings.macro[idx].port;
+}
+
+
+static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
+{
+#ifdef MACRO_1_AUXIN_PIN
+    return false;
 #else
-    return true;
+    return offset < n_ports;
 #endif
 }
+
+#endif // MACROS_ENABLE & 0x01
 
 static const setting_detail_t macro_settings[] = {
     { Setting_MacroBase, Group_UserSettings, "Macro ?", NULL, Format_String, format, "0", max_length, Setting_NonCoreFn, macro_set, macro_get, NULL, MACRO_OPTS },
 #if MACROS_ENABLE & 0x01
-    { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCoreFn, macro_set_int, macro_get_int, is_setting_available, MACRO_OPTS },
+    { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Decimal, "-#0", "-1", max_port, Setting_NonCoreFn, set_port, get_port, is_setting_available, MACRO_OPTS },
     { Setting_ButtonActionBase, Group_UserSettings, "Button ? action", NULL, Format_RadioButtons, BUTTON_ACTIONS, NULL, NULL, Setting_NonCoreFn, macro_set_int, macro_get_int, NULL, MACRO_OPTS },
 #endif
 };
@@ -494,7 +502,7 @@ static const setting_detail_t macro_settings[] = {
 static const setting_descr_t macro_settings_descr[] = {
     { Setting_MacroBase, "Macro content, separate blocks (lines) with the vertical bar character |." },
 #if MACROS_ENABLE & 0x01
-    { Setting_MacroPortBase, "Aux port number to use for the trigger pin input." SETTINGS_HARD_RESET_REQUIRED },
+    { Setting_MacroPortBase, "Aux port number to use for the trigger pin input. Set to -1 to disable." SETTINGS_HARD_RESET_REQUIRED },
     { Setting_ButtonActionBase, "Action to take when the pin is triggered."  },
 #endif
 };
@@ -562,10 +570,12 @@ static void macro_settings_restore (void)
                 break;
 #endif
             default:
-                plugin_settings.macro[idx].port = can_map_ports ? port++ : 0xFF;
+                plugin_settings.macro[idx].port = port < n_ports ? port++ : 0xFF;
                 break;
         }
-    };
+        if(plugin_settings.macro[idx].port >= n_ports)
+            plugin_settings.macro[idx].port = 0xFF;
+    }
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
 }
@@ -606,21 +616,21 @@ static void macro_settings_load (void)
     #else
         { .pin = MACRO_1_AUXIN_PIN, .port = NULL },
     #endif
-    #ifdef MACRO_2_AUXIN_PIN
+    #if N_MACROS > 1 && defined(MACRO_2_AUXIN_PIN)
       #ifdef MACRO_2_AUXIN_PORT
         { .pin = MACRO_2_AUXIN_PIN, .port = MACRO_2_AUXIN_PORT,  },
       #else
         { .pin = MACRO_2_AUXIN_PIN, .port = NULL },
       #endif
     #endif
-    #ifdef MACRO_3_AUXIN_PIN
+    #if N_MACROS > 2 && defined(MACRO_3_AUXIN_PIN)
       #ifdef MACRO_3_AUXIN_PORT
         { .pin = MACRO_3_AUXIN_PIN, .port = MACRO_3_AUXIN_PORT,  },
       #else
         { .pin = MACRO_3_AUXIN_PIN, .port = NULL },
       #endif
     #endif
-    #ifdef MACRO_4_AUXIN_PIN
+    #if N_MACROS > 3 && defined(MACRO_4_AUXIN_PIN)
       #ifdef MACRO_4_AUXIN_PORT
         { .pin = MACRO_4_AUXIN_PIN, .port = MACRO_4_AUXIN_PORT,  },
       #else
@@ -651,30 +661,26 @@ static void macro_settings_load (void)
 
   #else
 
-    // If port mapping is available try to claim ports as configured.
+    xbar_t *pin = NULL;
 
-    if(can_map_ports) {
+    do {
+        idx--;
+        if((port[idx] = plugin_settings.macro[idx].port) == 0xFF)
+            continue;
+        if((pin = ioport_get_info(Port_Digital, Port_Input, port[idx])) && !(pin->cap.irq_mode & IRQ_Mode_Falling)) // Is port interrupt capable?
+            port[idx] = 0xFF;                                                                                       // No, flag it as not claimed.
+        else if(ioport_claim(Port_Digital, Port_Input, &port[idx], "Macro pin")) {                                  // Try to claim the port.
+            if(pin->cap.debounce) {
+                gpio_in_config_t config = {
+                    .debounce = On,
+                    .pull_mode = PullMode_Up
+                };
+                pin->config(pin, &config, false);
+            }
+        } else
+            port[idx] = 0xFF;                                                       // If not successful flag it as not claimed.
 
-        xbar_t *pin = NULL;
-
-        do {
-            idx--;
-            port[idx] = plugin_settings.macro[idx].port;
-            if((pin = ioport_get_info(Port_Digital, Port_Input, port[idx])) && !(pin->cap.irq_mode & IRQ_Mode_Falling)) // Is port interrupt capable?
-                port[idx] = 0xFF;                                                                                       // No, flag it as not claimed.
-            else if(ioport_claim(Port_Digital, Port_Input, &port[idx], "Macro pin")) {                                  // Try to claim the port.
-                if(pin->cap.debounce) {
-                    gpio_in_config_t config = {
-                        .debounce = On,
-                        .pull_mode = PullMode_Up
-                    };
-                    pin->config(pin, &config, false);
-                }
-            } else
-                port[idx] = 0xFF;                                                       // If not successful flag it as not claimed.
-
-        } while(idx);
-    }
+    } while(idx);
 
   #endif // MACROS_AUX_EXPLICIT
 
@@ -695,7 +701,7 @@ static bool macro_settings_iterator (const setting_detail_t *setting, setting_ou
 {
     uint_fast16_t idx;
 
-    for(idx = 0; idx < N_MACROS; idx++)
+    for(idx = 0; idx < n_macros; idx++)
         callback(setting, idx, data);
 
     return true;
@@ -707,7 +713,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macro plugin", "0.09");
+        report_plugin("Macro plugin", "0.10");
 }
 
 void macros_init (void)
@@ -729,20 +735,9 @@ void macros_init (void)
     };
 
 #if MACROS_ENABLE & 0x01
-    bool ok = (n_ports = ioports_available(Port_Digital, Port_Input)) > N_MACROS;
-
-    if(ok && !(can_map_ports = ioport_can_claim_explicit())) {
-
-        // Driver does not support explicit pin claiming, claim the highest numbered ports instead.
-
-        uint_fast8_t idx = N_MACROS;
-
-        do {
-            idx--;
-            if(!(ok = ioport_claim(Port_Digital, Port_Input, &port[idx], "Macro pin")))
-                port[idx] = 0xFF;
-        } while(idx);
-    }
+    bool ok;
+    if((ok = (n_ports = ioports_available(Port_Digital, Port_Input)) > 0))
+        n_macros = min(N_MACROS, n_ports);
 #else
     bool ok = true;
 #endif
