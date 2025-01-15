@@ -86,21 +86,6 @@
 #endif
 
 #define MACRO_OPTS { .subgroups = Off, .increment = 1 }
-#define BUTTON_ACTIONS "Macro,Cycle start,Feed hold,Park,Reset,Spindle stop (during feed hold),Mist toggle,Flood toggle,Probe connected toggle,Optional stop toggle,Single block mode toggle"
-
-static uint8_t action[] = {
-    0, // run macro
-    CMD_CYCLE_START,
-    CMD_FEED_HOLD,
-    CMD_SAFETY_DOOR,
-    CMD_RESET,
-    CMD_OVERRIDE_SPINDLE_STOP,
-    CMD_OVERRIDE_COOLANT_MIST_TOGGLE,
-    CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE,
-    CMD_PROBE_CONNECTED_TOGGLE,
-    CMD_OPTIONAL_STOP_TOGGLE,
-    CMD_SINGLE_BLOCK_TOGGLE
-};
 
 #if MACROS_AUX_EXPLICIT
 
@@ -114,7 +99,7 @@ static uint8_t n_macros;
 
 #else
 
-static const uint8_t n_macros = N_MACROS;
+static uint8_t n_macros = N_MACROS;
 
 #endif
 
@@ -166,8 +151,7 @@ typedef struct {
 } macro_settings_t;
 
 static uint8_t n_ports = 0;
-static uint8_t port[N_MACROS];
-static char max_port[4], *command, format[8], max_length[5];
+static char *command, format[8], max_length[5];
 static macro_id_t macro_id = 0;
 static nvs_address_t nvs_address;
 static macro_settings_t plugin_settings;
@@ -177,6 +161,29 @@ static on_macro_return_ptr on_macro_return = NULL;
 static status_message_ptr status_message = NULL;
 static driver_reset_ptr driver_reset;
 static io_stream_t active_stream;
+
+#if MACROS_ENABLE & 0x01
+
+static uint8_t port[N_MACROS];
+static char max_port[4];
+
+static uint8_t action[] = {
+    0, // run macro
+    CMD_CYCLE_START,
+    CMD_FEED_HOLD,
+    CMD_SAFETY_DOOR,
+    CMD_RESET,
+    CMD_OVERRIDE_SPINDLE_STOP,
+    CMD_OVERRIDE_COOLANT_MIST_TOGGLE,
+    CMD_OVERRIDE_COOLANT_FLOOD_TOGGLE,
+    CMD_PROBE_CONNECTED_TOGGLE,
+    CMD_OPTIONAL_STOP_TOGGLE,
+    CMD_SINGLE_BLOCK_TOGGLE
+};
+
+#define BUTTON_ACTIONS "Macro,Cycle start,Feed hold,Park,Reset,Spindle stop (during feed hold),Mist toggle,Flood toggle,Probe connected toggle,Optional stop toggle,Single block mode toggle"
+
+#endif
 
 static int16_t get_macro_char (void);
 static status_code_t trap_status_messages (status_code_t status_code);
@@ -643,12 +650,13 @@ static void macro_settings_load (void)
 
 #endif
 
-    uint_fast8_t idx = n_macros, n_ok = 0;
 
     if(hal.nvs.memcpy_from_nvs((uint8_t *)&plugin_settings, nvs_address, sizeof(macro_settings_t), true) != NVS_TransferResult_OK)
         macro_settings_restore();
 
 #if MACROS_ENABLE & 0x01
+
+    uint_fast8_t idx = n_macros, n_ok = 0;
 
  #if MACROS_AUX_EXPLICIT
 
@@ -735,21 +743,19 @@ void macros_init (void)
     };
 
 #if MACROS_ENABLE & 0x01
-    bool ok;
-    if((ok = (n_ports = ioports_available(Port_Digital, Port_Input)) > 0))
-        n_macros = min(N_MACROS, n_ports);
-#else
-    bool ok = true;
+    if(!(n_ports = ioports_available(Port_Digital, Port_Input)))
+        return;
+
+    n_macros = min(N_MACROS, n_ports);
+    // Used for setting value validation.
+    strcpy(max_port, uitoa(n_ports ? n_ports - 1 : 0));
 #endif
 
     // If enough free non volatile memory register our plugin with the core.
-    if(ok && (nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
+    if((nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
 
         // Register settings.
         settings_register(&setting_details);
-
-        // Used for setting value validation.
-        strcpy(max_port, uitoa(n_ports ? n_ports - 1 : 0));
 
 #if MACROS_ENABLE & 0x02
         on_keypress_preview = keypad.on_keypress_preview;
