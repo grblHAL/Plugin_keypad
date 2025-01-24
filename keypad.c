@@ -499,7 +499,7 @@ bool keypad_init (void)
     if((nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
 
 #if MPG_ENABLE && defined(MPG_STREAM) && MPG_STREAM == KEYPAD_STREAM
-        if((hal.driver_cap.mpg_mode = stream_mpg_register(stream_open_instance(KEYPAD_STREAM, 115200, NULL, NULL), false, keypad_enqueue_keycode))) {
+        if((hal.driver_cap.mpg_mode = stream_mpg_register(stream_open_instance(KEYPAD_STREAM, 115200, NULL, "MPG & Keypad"), false, keypad_enqueue_keycode))) {
 #else
         if(stream_open_instance(KEYPAD_STREAM, 115200, keypad_enqueue_keycode, "Keypad")) {
 #endif
