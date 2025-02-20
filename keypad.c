@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2017-2024 Terje Io
+  Copyright (c) 2017-2025 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -375,12 +375,12 @@ static void keypad_process_keypress (void *data)
 #endif
         }
 
-        if(command[0] != '\0') {
-
-            float modifier = jogdata.modifier[jogdata.modifier_index];
+       if(command[0] == '$') {
 
             // add distance and speed to jog commands
-            if((jogCommand = (command[0] == '$' && command[1] == 'J'))) {
+            if((jogCommand = command[1] == 'J')) {
+
+                float modifier = jogdata.modifier[jogdata.modifier_index];
 
                 switch(jogMode) {
 
@@ -399,12 +399,15 @@ static void keypad_process_keypress (void *data)
                         strcat(command, ftoa(jog.fast_speed * modifier, 0));
                         break;
                 }
+            } else if(command[1] == 'X' || command[1] == 'H') {
+                system_execute_line(command);
+                return;
             }
+        }
 
-            if(!(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!
-                addedGcode = grbl.enqueue_gcode((char *)command);
-                jogging = jogging || (jogCommand && addedGcode);
-            }
+        if(command[0] && !(jogCommand && keyreleased)) { // key still pressed? - do not execute jog command if released!
+            addedGcode = grbl.enqueue_gcode((char *)command);
+            jogging = jogging || (jogCommand && addedGcode);
         }
     }
 }
