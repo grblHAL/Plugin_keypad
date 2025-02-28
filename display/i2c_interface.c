@@ -19,16 +19,11 @@
   along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
-
-#ifdef ARDUINO
-#include "../../driver.h"
-#else
 #include "driver.h"
-#endif
 
-#if DISPLAY_ENABLE == 1
+#if DISPLAY_ENABLE == DISPLAY_I2C_INTERFACE
 
-#if KEYPAD_ENABLE
+#if KEYPAD_ENABLE && KEYPAD_ENABLE <= 2
 #include "../keypad.h"
 #endif
 
@@ -37,15 +32,9 @@
 
 #include "i2c_interface.h"
 
-#ifdef ARDUINO
-#include "../../grbl/plugins.h"
-#include "../../grbl/protocol.h"
-#include "../../grbl/state_machine.h"
-#else
 #include "grbl/plugins.h"
 #include "grbl/protocol.h"
 #include "grbl/state_machine.h"
-#endif
 
 #ifndef DISPLAY_I2CADDR
 #if KEYPAD_ENABLE
@@ -274,10 +263,12 @@ static void onWCOChanged (void)
     msgtype = MachineMsg_WorkOffset;
 }
 
-static void onGCodeMessage (char *msg)
+static status_code_t onGCodeMessage (char *msg)
 {
+    status_code_t status = Status_OK;
+
     if(on_gcode_message)
-        on_gcode_message(msg);
+        status = on_gcode_message(msg);
 
     msgtype = strlen(msg);
     if((msgtype = min(msgtype, sizeof(status_packet.msg) - 1)) == 0)
@@ -286,6 +277,8 @@ static void onGCodeMessage (char *msg)
         strncpy((char *)status_packet.msg, msg, msgtype);
 
     display_update_now();
+
+    return status;
 }
 
 static status_code_t onStatusMessageReport (status_code_t status_code)
@@ -396,7 +389,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write(connected ? "[PLUGIN:I2C Display v0.11]" ASCII_EOL : "[PLUGIN:I2C Display v0.11 (not connected)]" ASCII_EOL);
+        report_plugin("I2C Display", connected ? "0.11" : "0.11 (not connected)");
 }
 
 static void complete_setup (void *data)
@@ -426,7 +419,7 @@ void display_init (void)
 
     hal.delay_ms(510, NULL);
 
-    if((connected = i2c_probe(DISPLAY_I2CADDR))) {
+    if((connected = i2c_start().tx_non_blocking && i2c_probe(DISPLAY_I2CADDR))) {
 
         on_state_change = grbl.on_state_change;
         grbl.on_state_change = onStateChanged;
@@ -447,7 +440,7 @@ void display_init (void)
         status_packet.msgtype = MachineMsg_None;
         status_packet.status_code = Status_OK;
     #if N_AXIS == 3
-        status_packet.coordinate.a = 0xFFFFFFFF;
+        status_packet.coordinate.a = 0xFFFFFFFF; // TODO: should be changed to NAN
     #endif
 
         // delay final setup until startup is complete

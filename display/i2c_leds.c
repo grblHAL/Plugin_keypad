@@ -3,37 +3,28 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2023-2024 Terje Io
+  Copyright (c) 2023-2025 Terje Io
 
-  Grbl is free software: you can redistribute it and/or modify
+  grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Grbl is distributed in the hope that it will be useful,
+  grblHAL is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
   You should have received a copy of the GNU General Public License
-  along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
+  along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef ARDUINO
-#include "../../driver.h"
-#else
 #include "driver.h"
-#endif
 
-#if I2C_ENABLE && DISPLAY_ENABLE == 2
+#if DISPLAY_ENABLE == DISPLAY_I2C_LEDS
 
-#ifdef ARDUINO
-#include "../../grbl/plugins.h"
-#include "../../grbl/protocol.h"
-#else
 #include "grbl/plugins.h"
 #include "grbl/protocol.h"
-#endif
 
 #ifndef DISPLAY2_PCA9654E
 #define DISPLAY2_PCA9654E 1
@@ -141,7 +132,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:I2C LEDS v0.04]" ASCII_EOL);
+        report_plugin("I2C LEDS", "0.04");
 }
 
 void display_init (void)
@@ -149,7 +140,7 @@ void display_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    if(i2c_probe(LEDS_I2CADDR)) {
+    if(i2c_start().ok && i2c_probe(LEDS_I2CADDR)) {
 
         on_state_change = grbl.on_state_change;
         grbl.on_state_change = onStateChanged;

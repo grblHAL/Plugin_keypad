@@ -417,7 +417,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        hal.stream.write("[PLUGIN:KEYPAD v1.38]" ASCII_EOL);
+        report_plugin("Keypad", "1.39");
 }
 
 #if KEYPAD_ENABLE == 1
@@ -453,7 +453,9 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 
 bool keypad_init (void)
 {
-    if(hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) && (nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
+    if(i2c_start().ok && i2c_probe(KEYPAD_I2CADDR) &&
+        hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) &&
+         (nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
 
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = onReportOptions;

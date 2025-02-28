@@ -21,11 +21,7 @@
 
 #pragma once
 
-#ifdef ARDUINO
-#include "../../grbl/gcode.h"
-#else
 #include "grbl/gcode.h"
-#endif
 
 #include <assert.h>
 
