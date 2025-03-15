@@ -176,8 +176,9 @@ static void keypad_process_keypress (void *data)
     	!(keycode == CMD_STATUS_REPORT ||
 		   keycode == CMD_STATUS_REPORT_LEGACY ||
 		    keycode == CMD_RESET ||
-			 keycode == CMD_MPG_MODE_TOGGLE ||
-			  keycode == 'X' || keycode == 'H'))
+             keycode == CMD_RESET_KEYPAD ||
+			  keycode == CMD_MPG_MODE_TOGGLE ||
+			   keycode == 'X' || keycode == 'H'))
         return;
 
     if(keycode) {
@@ -222,6 +223,7 @@ static void keypad_process_keypress (void *data)
 
             case 'h':                                   // Cycle jog mode
                 jogMode = jogMode == JogMode_Step ? JogMode_Fast : (jogMode == JogMode_Fast ? JogMode_Slow : JogMode_Step);
+                jogdata.mode = jogMode;
                 if(keypad.on_jogmode_changed)
                     keypad.on_jogmode_changed(jogMode);
                 if(keypad.on_jogdata_changed)
@@ -297,6 +299,9 @@ static void keypad_process_keypress (void *data)
                 enqueue_spindle_override(keycode);
                 break;
 
+            case CMD_RESET_KEYPAD:
+                grbl.enqueue_realtime_command(CMD_RESET);
+                break;
             case CMD_RESET:
             case CMD_SAFETY_DOOR:
             case CMD_STATUS_REPORT:
