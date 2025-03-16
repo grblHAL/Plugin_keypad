@@ -55,7 +55,6 @@ typedef struct {
 } keybuffer_t;
 
 static bool jogging = false, keyreleased = true;
-static jogmode_t jogMode = JogMode_Fast;
 static jog_settings_t jog;
 static jogdata_t jogdata = {
     .modifier[0] = 1.0f,
@@ -218,14 +217,15 @@ static void keypad_process_keypress (void *data)
             case '0':
             case '1':
             case '2':                                   // Set jog mode
-                jogMode = (jogmode_t)(keycode - '0');
+                jogdata.mode = (keycode - '0');
+                if(keypad.on_jogdata_changed)
+                    keypad.on_jogdata_changed(&jogdata);
                 break;
 
             case 'h':                                   // Cycle jog mode
-                jogMode = jogMode == JogMode_Step ? JogMode_Fast : (jogMode == JogMode_Fast ? JogMode_Slow : JogMode_Step);
-                jogdata.mode = jogMode;
+                jogdata.mode = jogdata.mode == JogMode_Step ? JogMode_Fast : (jogdata.mode == JogMode_Fast ? JogMode_Slow : JogMode_Step);
                 if(keypad.on_jogmode_changed)
-                    keypad.on_jogmode_changed(jogMode);
+                    keypad.on_jogmode_changed(jogdata.mode);
                 if(keypad.on_jogdata_changed)
                     keypad.on_jogdata_changed(&jogdata);
                 break;
@@ -387,7 +387,7 @@ static void keypad_process_keypress (void *data)
 
                 float modifier = jogdata.modifier[jogdata.modifier_index];
 
-                switch(jogMode) {
+                switch(jogdata.mode) {
 
                     case JogMode_Slow:
                         strrepl(command, '?', ftoa(jog.slow_distance, 0));
@@ -468,7 +468,7 @@ bool keypad_init (void)
         settings_register(&setting_details);
 
         if(keypad.on_jogmode_changed)
-            keypad.on_jogmode_changed(jogMode);
+            keypad.on_jogmode_changed(jogdata.mode);
     }
 
     return nvs_address != 0;
@@ -519,7 +519,7 @@ bool keypad_init (void)
             settings_register(&setting_details);
 
             if(keypad.on_jogmode_changed)
-                keypad.on_jogmode_changed(jogMode);
+                keypad.on_jogmode_changed(jogdata.mode);
         }
     }
 
