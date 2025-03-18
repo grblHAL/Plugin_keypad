@@ -175,9 +175,8 @@ static void keypad_process_keypress (void *data)
     	!(keycode == CMD_STATUS_REPORT ||
 		   keycode == CMD_STATUS_REPORT_LEGACY ||
 		    keycode == CMD_RESET ||
-             keycode == CMD_RESET_KEYPAD ||
-			  keycode == CMD_MPG_MODE_TOGGLE ||
-			   keycode == 'X' || keycode == 'H'))
+			 keycode == CMD_MPG_MODE_TOGGLE ||
+			  keycode == 'X' || keycode == 'H'))
         return;
 
     if(keycode) {
@@ -299,9 +298,6 @@ static void keypad_process_keypress (void *data)
                 enqueue_spindle_override(keycode);
                 break;
 
-            case CMD_RESET_KEYPAD:
-                grbl.enqueue_realtime_command(CMD_RESET);
-                break;
             case CMD_RESET:
             case CMD_SAFETY_DOOR:
             case CMD_STATUS_REPORT:

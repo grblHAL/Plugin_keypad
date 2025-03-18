@@ -54,8 +54,6 @@
 #define JOG_AL   'a'
 #endif
 
-#define CMD_RESET_KEYPAD   0x7F
-
 typedef enum {
     JogMode_Fast = 0,
     JogMode_Slow,
