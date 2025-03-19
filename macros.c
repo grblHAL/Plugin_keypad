@@ -112,28 +112,28 @@ static uint8_t n_macros = N_MACROS;
 #include "keypad.h"
 
 #ifndef MACRO_KEY0
-#define MACRO_KEY0 0x18
+#define MACRO_KEY0 0xB0
 #endif
 #ifndef MACRO_KEY1
-#define MACRO_KEY1 0x19
+#define MACRO_KEY1 0xB1
 #endif
 #ifndef MACRO_KEY2
-#define MACRO_KEY2 0x1B
+#define MACRO_KEY2 0xB2
 #endif
 #ifndef MACRO_KEY3
-#define MACRO_KEY3 0x1A
+#define MACRO_KEY3 0xB3
 #endif
 #ifndef MACRO_KEY4
-#define MACRO_KEY4 0x7D
+#define MACRO_KEY4 0xB4
 #endif
 #ifndef MACRO_KEY5
-#define MACRO_KEY5 0x7C
+#define MACRO_KEY5 0xB5
 #endif
 #ifndef MACRO_KEY6
-#define MACRO_KEY6 0x7E
+#define MACRO_KEY6 0xB6
 #endif
 #ifndef MACRO_KEY7
-#define MACRO_KEY7 0x7F
+#define MACRO_KEY7 0xB7
 #endif
 
 static on_keypress_preview_ptr on_keypress_preview;

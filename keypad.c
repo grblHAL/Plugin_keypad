@@ -246,7 +246,7 @@ static void keypad_process_keypress (void *data)
 
          // Feed rate and spindle overrides
 
-             case 'I':                                   // Feed rate coarse override -10%
+            case 'I':                                   // Feed rate coarse override -10%
                 enqueue_feed_override(CMD_OVERRIDE_FEED_RESET);
                 break;
 
@@ -270,7 +270,7 @@ static void keypad_process_keypress (void *data)
                 enqueue_spindle_override(CMD_OVERRIDE_SPINDLE_COARSE_MINUS);
                 break;
 
-         // Pass most of the top bit set commands trough unmodified
+         // Pass most of the top bit set commands through unmodified
 
             case CMD_OVERRIDE_FEED_RESET:
             case CMD_OVERRIDE_FEED_COARSE_PLUS:
@@ -418,7 +418,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Keypad", "1.39");
+        report_plugin("Keypad", "1.40");
 }
 
 #if KEYPAD_ENABLE == 1
@@ -436,13 +436,17 @@ ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
     }
 }
 
+static void i2c_get_key (void *data)
+{
+    i2c_get_keycode(KEYPAD_I2CADDR, i2c_enqueue_keycode);
+}
+
 ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 {
     keyreleased = !keydown;
 
     if(keydown)
-        i2c_get_keycode(KEYPAD_I2CADDR, i2c_enqueue_keycode);
-
+        task_add_immediate(i2c_get_key, NULL);
     else if(jogging) {
         jogging = false;
         grbl.enqueue_realtime_command(CMD_JOG_CANCEL);
