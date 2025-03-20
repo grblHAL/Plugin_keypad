@@ -22,13 +22,8 @@
 #ifndef _KEYPAD_H_
 #define _KEYPAD_H_
 
-#ifdef ARDUINO
-#include "../grbl/gcode.h"
-#include "../grbl/settings.h"
-#else
 #include "grbl/gcode.h"
 #include "grbl/settings.h"
-#endif
 
 #define KEYBUF_SIZE 8 // must be a power of 2
 #ifndef KEYPAD_I2CADDR

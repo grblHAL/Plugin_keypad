@@ -36,11 +36,7 @@
   Tip: use the $pins command to check the port mapping.
 */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if MACROS_ENABLE && MACROS_ENABLE <= 3
 
@@ -52,8 +48,6 @@
 #include "grbl/nuts_bolts.h"
 #include "grbl/protocol.h"
 #include "grbl/state_machine.h"
-
-#include "macros.h"
 
 #ifndef N_MACROS
 #if MACROS_ENABLE == 2
@@ -112,28 +106,28 @@ static uint8_t n_macros = N_MACROS;
 #include "keypad.h"
 
 #ifndef MACRO_KEY0
-#define MACRO_KEY0 0xB0
+#define MACRO_KEY0 CMD_MACRO_0
 #endif
 #ifndef MACRO_KEY1
-#define MACRO_KEY1 0xB1
+#define MACRO_KEY1 CMD_MACRO_1
 #endif
 #ifndef MACRO_KEY2
-#define MACRO_KEY2 0xB2
+#define MACRO_KEY2 CMD_MACRO_2
 #endif
 #ifndef MACRO_KEY3
-#define MACRO_KEY3 0xB3
+#define MACRO_KEY3 CMD_MACRO_3
 #endif
 #ifndef MACRO_KEY4
-#define MACRO_KEY4 0xB4
+#define MACRO_KEY4 CMD_MACRO_4
 #endif
 #ifndef MACRO_KEY5
-#define MACRO_KEY5 0xB5
+#define MACRO_KEY5 CMD_MACRO_5
 #endif
 #ifndef MACRO_KEY6
-#define MACRO_KEY6 0xB6
+#define MACRO_KEY6 CMD_MACRO_6
 #endif
 #ifndef MACRO_KEY7
-#define MACRO_KEY7 0xB7
+#define MACRO_KEY7 CMD_MACRO_7
 #endif
 
 static on_keypress_preview_ptr on_keypress_preview;
@@ -286,7 +280,7 @@ static status_code_t macro_execute (macro_id_t macro)
 
     if(macro_id == 0 && macro > 0 && macro <= N_MACROS && state_get() == STATE_IDLE) {
         command = plugin_settings.macro[macro - 1].data;
-        if((ok = !(*command == '\0' || *command == 0xFF))) {
+        if((ok = !(*command == '\0' || *command == IOPORT_UNASSIGNED))) {
             macro_id = macro;
             run_macro(NULL);
         }
@@ -315,7 +309,7 @@ ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
             grbl.enqueue_realtime_command(action[plugin_settings.macro[idx].action_idx]);
         else if(state_get() == STATE_IDLE) {
             command = plugin_settings.macro[idx].data;
-            if(!(*command == '\0' || *command == 0xFF)) {           // If valid command
+            if(!(*command == '\0' || *command == IOPORT_UNASSIGNED)) {           // If valid command
                 macro_id = idx + 1;
                 protocol_enqueue_foreground_task(run_macro, NULL);  // register run_macro function to be called from foreground process.
             }
@@ -375,7 +369,7 @@ static bool keypress_preview (const char c, uint_fast16_t state)
 
     if(macro != -1) {
         command = plugin_settings.macro[macro].data;
-        if(!(*command == '\0' || *command == 0xFF)) // If valid command
+        if(!(*command == '\0' || *command == IOPORT_UNASSIGNED)) // If valid command
             run_macro(NULL);                        // run macro.
     }
 
@@ -470,7 +464,7 @@ static status_code_t set_port (setting_id_t setting, float value)
 
     setting = normalize_id(setting, &idx);
 
-    plugin_settings.macro[idx].port = value < 0.0f ? 0xFF : (uint8_t)value;
+    plugin_settings.macro[idx].port = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
 
     return Status_OK;
 }
@@ -577,11 +571,11 @@ static void macro_settings_restore (void)
                 break;
 #endif
             default:
-                plugin_settings.macro[idx].port = port < n_ports ? port++ : 0xFF;
+                plugin_settings.macro[idx].port = port < n_ports ? port++ : IOPORT_UNASSIGNED;
                 break;
         }
         if(plugin_settings.macro[idx].port >= n_ports)
-            plugin_settings.macro[idx].port = 0xFF;
+            plugin_settings.macro[idx].port = IOPORT_UNASSIGNED;
     }
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
@@ -664,7 +658,7 @@ static void macro_settings_load (void)
         if(ioports_enumerate(Port_Digital, Port_Input, (pin_cap_t){ .irq_mode = IRQ_Mode_Falling, .claimable = On }, macro_claim_port, (void *)&pin_map[--idx]))
             port[idx] = pin_map[idx].aux_port;
         else
-            port[idx] = 0xFF;
+            port[idx] = IOPORT_UNASSIGNED;
     } while(idx);
 
   #else
@@ -673,10 +667,10 @@ static void macro_settings_load (void)
 
     do {
         idx--;
-        if((port[idx] = plugin_settings.macro[idx].port) == 0xFF)
+        if((port[idx] = plugin_settings.macro[idx].port) == IOPORT_UNASSIGNED)
             continue;
         if((pin = ioport_get_info(Port_Digital, Port_Input, port[idx])) && !(pin->cap.irq_mode & IRQ_Mode_Falling)) // Is port interrupt capable?
-            port[idx] = 0xFF;                                                                                       // No, flag it as not claimed.
+            port[idx] = IOPORT_UNASSIGNED;                                                                                       // No, flag it as not claimed.
         else if(ioport_claim(Port_Digital, Port_Input, &port[idx], "Macro pin")) {                                  // Try to claim the port.
             if(pin->cap.debounce) {
                 gpio_in_config_t config = {
@@ -686,7 +680,7 @@ static void macro_settings_load (void)
                 pin->config(pin, &config, false);
             }
         } else
-            port[idx] = 0xFF;                                                       // If not successful flag it as not claimed.
+            port[idx] = IOPORT_UNASSIGNED;                                                       // If not successful flag it as not claimed.
 
     } while(idx);
 
@@ -696,7 +690,7 @@ static void macro_settings_load (void)
     idx = n_macros;
     do {
         idx--;
-        if(port[idx] != 0xFF && hal.port.register_interrupt_handler(port[idx], IRQ_Mode_Falling, execute_macro))
+        if(port[idx] != IOPORT_UNASSIGNED && hal.port.register_interrupt_handler(port[idx], IRQ_Mode_Falling, execute_macro))
             n_ok++;
     } while(idx);
 
@@ -721,7 +715,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macro plugin", "0.10");
+        report_plugin("Macros", "0.11");
 }
 
 void macros_init (void)

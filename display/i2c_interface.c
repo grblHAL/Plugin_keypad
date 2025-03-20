@@ -60,13 +60,13 @@ static on_keypress_preview_ptr on_keypress_preview;
 static on_jogdata_changed_ptr on_jogdata_changed;
 #endif
 
-#define SEND_STATUS_DELAY 300
+#define SEND_STATUS_DELAY     300
 #define SEND_STATUS_JOG_DELAY 100
 #define SEND_STATUS_NOW_DELAY 20
 
 static machine_status_packet_t status_packet, prev_status = {0};
 
-static void send_status_info (void)
+static void send_status_info (void *data)
 {
     uint_fast8_t idx = min(4, N_AXIS);
 
@@ -99,7 +99,7 @@ static void send_status_info (void)
 
     if(msgtype || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype))) {
 
-        size_t len = (status_packet.msgtype = msgtype) ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msgtype);
+        size_t len = ((status_packet.msgtype = msgtype)) ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msgtype);
 
         switch(msgtype) {
 
@@ -127,6 +127,8 @@ static void send_status_info (void)
             msgtype = MachineMsg_None;
         }
     }
+
+    task_add_delayed(send_status_info, NULL, state_get() == STATE_JOG ? SEND_STATUS_JOG_DELAY : SEND_STATUS_DELAY);
 }
 
 static void set_state (sys_state_t state)
@@ -177,17 +179,12 @@ static void set_state (sys_state_t state)
     }
 }
 
-static void display_update (void *data)
-{
-    send_status_info();
-    //send more often during manual jogging
-    task_add_delayed(display_update, NULL, state_get() == STATE_JOG ? SEND_STATUS_JOG_DELAY : SEND_STATUS_DELAY);
-}
-
 static void display_update_now (void)
 {
-    task_delete(display_update, NULL);
-    task_add_delayed(display_update, NULL, SEND_STATUS_NOW_DELAY); // wait a bit before updating in order not to spam the port
+    if(status_packet.address) {
+        task_delete(send_status_info, NULL);
+        task_add_delayed(send_status_info, NULL, SEND_STATUS_NOW_DELAY); // wait a bit before updating in order not to spam the port
+    }
 }
 
 static void onStateChanged (sys_state_t state)
@@ -389,7 +386,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("I2C Display", connected ? "0.11" : "0.11 (not connected)");
+        report_plugin("I2C Display", connected ? "0.12" : "0.12 (not connected)");
 }
 
 static void complete_setup (void *data)
@@ -407,9 +404,12 @@ static void complete_setup (void *data)
     set_state(state_get());
     add_reports(report);
 
+    status_packet.address = 0x01;
+    status_packet.msgtype = MachineMsg_None;
+    status_packet.status_code = Status_OK;
     status_packet.machine_modes.mode = settings.mode;
 
-    task_add_delayed(display_update, NULL, SEND_STATUS_DELAY);
+    task_add_delayed(send_status_info, NULL, SEND_STATUS_DELAY);
 }
 
 void display_init (void)
@@ -436,9 +436,7 @@ void display_init (void)
         on_rt_reports_added = grbl.on_rt_reports_added;
         grbl.on_rt_reports_added = onRealtimeReportsAdded;
 
-        status_packet.address = 0x01;
-        status_packet.msgtype = MachineMsg_None;
-        status_packet.status_code = Status_OK;
+        status_packet.address = 0;
     #if N_AXIS == 3
         status_packet.coordinate.a = 0xFFFFFFFF; // TODO: should be changed to NAN
     #endif

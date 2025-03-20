@@ -104,6 +104,6 @@ typedef struct {
     status_code_t status_code;
     machine_modes_t machine_modes;
     machine_coords_t coordinate;
-    msg_type_t msgtype; //<! 1 - 127 -> msg[] contains a string msgtype long
+    msg_type_t msgtype; //!< 1 - 127 -> msg[] contains a string msgtype long
     uint8_t msg[128];
 } machine_status_packet_t;

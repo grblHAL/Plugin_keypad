@@ -19,12 +19,7 @@
   along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
-
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if KEYPAD_ENABLE > 0 && KEYPAD_ENABLE <= 2
 
@@ -32,21 +27,12 @@
 
 #include "keypad.h"
 
-#ifdef ARDUINO
-#include "../grbl/plugins.h"
-#include "../grbl/report.h"
-#include "../grbl/override.h"
-#include "../grbl/protocol.h"
-#include "../grbl/nvs_buffer.h"
-#include "../grbl/state_machine.h"
-#else
 #include "grbl/plugins.h"
 #include "grbl/report.h"
 #include "grbl/override.h"
 #include "grbl/protocol.h"
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
-#endif
 
 typedef struct {
     char buf[KEYBUF_SIZE];
@@ -171,7 +157,7 @@ static void keypad_process_keypress (void *data)
     char command[35] = "", keycode = keypad_get_keycode();
     sys_state_t state = state_get();
 
-    if(state & (STATE_ESTOP|STATE_ALARM) &&
+    if((state & (STATE_ESTOP|STATE_ALARM)) &&
     	!(keycode == CMD_STATUS_REPORT ||
 		   keycode == CMD_STATUS_REPORT_LEGACY ||
 		    keycode == CMD_RESET ||
@@ -216,7 +202,9 @@ static void keypad_process_keypress (void *data)
             case '0':
             case '1':
             case '2':                                   // Set jog mode
-                jogdata.mode = (keycode - '0');
+                jogdata.mode = (jogmode_t)(keycode - '0');
+                if(keypad.on_jogmode_changed)
+                    keypad.on_jogmode_changed(jogdata.mode);
                 if(keypad.on_jogdata_changed)
                     keypad.on_jogdata_changed(&jogdata);
                 break;
@@ -234,6 +222,10 @@ static void keypad_process_keypress (void *data)
                     jogdata.modifier_index = 0;
                 if(keypad.on_jogdata_changed)
                     keypad.on_jogdata_changed(&jogdata);
+                break;
+
+            case 'o':                                   // Cycle coordinate system
+                strcpy(command, gc_coord_system_to_str(gc_state.modal.coord_system.id < N_WorkCoordinateSystems - 1 ? gc_state.modal.coord_system.id + 1 : 0));
                 break;
 
             case 'H':                                   // Home axes
@@ -418,7 +410,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Keypad", "1.40");
+        report_plugin("Keypad", "1.41");
 }
 
 #if KEYPAD_ENABLE == 1
