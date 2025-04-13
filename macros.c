@@ -690,7 +690,7 @@ static void macro_settings_load (void)
     idx = n_macros;
     do {
         idx--;
-        if(port[idx] != IOPORT_UNASSIGNED && hal.port.register_interrupt_handler(port[idx], IRQ_Mode_Falling, execute_macro))
+        if(port[idx] != IOPORT_UNASSIGNED && ioport_enable_irq(port[idx], IRQ_Mode_Falling, execute_macro))
             n_ok++;
     } while(idx);
 
@@ -715,7 +715,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.11");
+        report_plugin("Macros", "0.12");
 }
 
 void macros_init (void)
