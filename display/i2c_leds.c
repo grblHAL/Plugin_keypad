@@ -164,7 +164,7 @@ void display_init (void)
 #endif
 
     } else
-        protocol_enqueue_foreground_task(report_warning, "I2C LEDs not connected!");
+        task_run_on_startup(report_warning, "I2C LEDs not connected!");
 }
 
 #endif

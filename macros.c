@@ -311,7 +311,7 @@ ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
             command = plugin_settings.macro[idx].data;
             if(!(*command == '\0' || *command == IOPORT_UNASSIGNED)) {           // If valid command
                 macro_id = idx + 1;
-                protocol_enqueue_foreground_task(run_macro, NULL);  // register run_macro function to be called from foreground process.
+                task_add_immediate(run_macro, NULL);  // register run_macro function to be called from foreground process.
             }
         }
     }
@@ -695,7 +695,7 @@ static void macro_settings_load (void)
     } while(idx);
 
     if(n_ok < n_macros)
-        protocol_enqueue_foreground_task(report_warning, "Macro plugin failed to claim all needed ports!");
+        task_run_on_startup(report_warning, "Macro plugin failed to claim all needed ports!");
 #endif // MACROS_ENABLE & 0x01
 }
 
@@ -773,7 +773,7 @@ void macros_init (void)
         strcat(strcat(strcpy(format, "x("), max_length), ")");
 
     } else
-        protocol_enqueue_foreground_task(report_warning, "Macro plugin failed to initialize!");
+        task_run_on_startup(report_warning, "Macro plugin failed to initialize!");
 }
 
 #endif // MACROS_ENABLE

@@ -244,16 +244,18 @@ static void jogdata_changed (jogdata_t *jogdata)
 
 static void onWCOChanged (void)
 {
+    machine_coords_t wco = {};
     uint_fast8_t idx = min(4, N_AXIS);
-    machine_coords_t *wco = (machine_coords_t *)status_packet.msg;
 
     if(on_wco_changed)
         on_wco_changed();
 
     do {
         idx--;
-        wco->values[idx] = gc_get_offset(idx, false);
+        wco.values[idx] = gc_get_offset(idx, false);
     } while(idx);
+
+    memcpy(status_packet.msg, &wco, sizeof(machine_coords_t));
 
     display_update_now();
 
@@ -386,7 +388,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("I2C Display", connected ? "0.12" : "0.12 (not connected)");
+        report_plugin("I2C Display", connected ? "0.13" : "0.13 (not connected)");
 }
 
 static void complete_setup (void *data)
@@ -442,7 +444,7 @@ void display_init (void)
     #endif
 
         // delay final setup until startup is complete
-        protocol_enqueue_foreground_task(complete_setup, NULL);
+        task_run_on_startup(complete_setup, NULL);
 
 #if KEYPAD_ENABLE
 
@@ -455,7 +457,7 @@ void display_init (void)
 #endif
 
     } else
-        protocol_enqueue_foreground_task(report_warning, "I2C display not connected!");
+        task_run_on_startup(report_warning, "I2C display not connected!");
 }
 
 #endif // DISPLAY_ENABLE
