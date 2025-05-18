@@ -34,6 +34,8 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
 
+#define KEYPAD_VERSION "1.42"
+
 typedef struct {
     char buf[KEYBUF_SIZE];
     volatile uint_fast8_t head;
@@ -158,11 +160,11 @@ static void keypad_process_keypress (void *data)
     sys_state_t state = state_get();
 
     if((state & (STATE_ESTOP|STATE_ALARM)) &&
-    	!(keycode == CMD_STATUS_REPORT ||
-		   keycode == CMD_STATUS_REPORT_LEGACY ||
-		    keycode == CMD_RESET ||
-			 keycode == CMD_MPG_MODE_TOGGLE ||
-			  keycode == 'X' || keycode == 'H'))
+        !(keycode == CMD_STATUS_REPORT ||
+           keycode == CMD_STATUS_REPORT_LEGACY ||
+            keycode == CMD_RESET ||
+             keycode == CMD_MPG_MODE_TOGGLE ||
+              keycode == 'X' || keycode == 'H'))
         return;
 
     if(keycode) {
@@ -405,15 +407,17 @@ static void keypad_process_keypress (void *data)
     }
 }
 
+#if KEYPAD_ENABLE == 1
+
+static bool connected;
+
 static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Keypad", "1.41");
+        report_plugin("Keypad", connected ? KEYPAD_VERSION : KEYPAD_VERSION " (not connected)");
 }
-
-#if KEYPAD_ENABLE == 1
 
 ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
 {
@@ -450,12 +454,11 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
 
 bool keypad_init (void)
 {
-    if(i2c_start().ok && i2c_probe(KEYPAD_I2CADDR) &&
-        hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) &&
-         (nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
+    hal.delay_ms(510, NULL);
 
-        on_report_options = grbl.on_report_options;
-        grbl.on_report_options = onReportOptions;
+    if((connected = i2c_start().ok && i2c_probe(KEYPAD_I2CADDR) &&
+        hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) &&
+         (nvs_address = nvs_alloc(sizeof(jog_settings_t))))) {
 
         settings_register(&setting_details);
 
@@ -463,10 +466,21 @@ bool keypad_init (void)
             keypad.on_jogmode_changed(jogdata.mode);
     }
 
+    on_report_options = grbl.on_report_options;
+    grbl.on_report_options = onReportOptions;
+
     return nvs_address != 0;
 }
 
 #else // KEYPAD_ENABLE == 2
+
+static void onReportOptions (bool newopt)
+{
+    on_report_options(newopt);
+
+    if(!newopt)
+        report_plugin("Keypad", KEYPAD_VERSION);
+}
 
 static ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
 {
