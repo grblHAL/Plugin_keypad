@@ -145,7 +145,7 @@ typedef struct {
 } macro_settings_t;
 
 static uint8_t n_ports = 0;
-static char *command, format[8], max_length[5];
+static char *command = NULL, format[8], max_length[5];
 static macro_id_t macro_id = 0;
 static nvs_address_t nvs_address;
 static macro_settings_t plugin_settings;
@@ -189,9 +189,9 @@ static void end_macro (void)
     if(hal.stream.read == get_macro_char)
         memcpy(&hal.stream, &active_stream, sizeof(io_stream_t));
 
-    if(macro_id) {
+    if(command) {
 
-        macro_id = 0;
+        command = NULL;
 
         grbl.on_macro_return = on_macro_return;
         on_macro_return = NULL;
@@ -224,7 +224,7 @@ static int16_t get_macro_char (void)
         }
         eol_ok = true;
 
-        return ASCII_LF;  // Return a linefeed if the last character was not a linefeed.
+        return ASCII_LF;    // Return a linefeed if the last character was not a linefeed.
     }
 
     char c = *command++;    // Get next character.
@@ -257,33 +257,31 @@ static status_code_t trap_status_messages (status_code_t status_code)
 }
 
 // Actual start of macro execution.
-static void run_macro (void *data)
+static void run_macro (void *cmd)
 {
-    if(state_get() == STATE_IDLE && hal.stream.read != get_macro_char) {
+    if(!(*((char *)cmd) == '\0' || *((char *)cmd) == 0xFF) && hal.stream.read != get_macro_char && state_get() == STATE_IDLE) {
+
+        command = (char *)cmd;
 
         memcpy(&active_stream, &hal.stream, sizeof(io_stream_t));   // Redirect input stream to read from the macro instead
         hal.stream.read = get_macro_char;                           // the active stream. This ensures that input streams are not mingled.
         hal.stream.file = NULL;                                     // Input stream is not file based.
 
-        status_message = grbl.report.status_message;        // Add trap for status messages
-        grbl.report.status_message = trap_status_messages;  // so we can terminate on errors.
+        status_message = grbl.report.status_message;                // Add trap for status messages
+        grbl.report.status_message = trap_status_messages;          // so we can terminate on errors.
 
         on_macro_return = grbl.on_macro_return;
         grbl.on_macro_return = end_macro;
-    } else
-        macro_id = 0;
+    }
 }
 
 static status_code_t macro_execute (macro_id_t macro)
 {
     bool ok = false;
 
-    if(macro_id == 0 && macro > 0 && macro <= N_MACROS && state_get() == STATE_IDLE) {
-        command = plugin_settings.macro[macro - 1].data;
-        if((ok = !(*command == '\0' || *command == IOPORT_UNASSIGNED))) {
-            macro_id = macro;
-            run_macro(NULL);
-        }
+    if((ok = macro <= N_MACROS && !(*plugin_settings.macro[macro - 1].data == '\0' || *plugin_settings.macro[macro - 1].data == 0xFF))) {
+        if(state_get() == STATE_IDLE)
+            run_macro(plugin_settings.macro[macro - 1].data);
     }
 
     return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro) : Status_Unhandled);
@@ -291,10 +289,10 @@ static status_code_t macro_execute (macro_id_t macro)
 
 #if MACROS_ENABLE & 0x01
 
-// On falling interrupt run macro if machine is in Idle state.
+// On pin interrupt run macro if machine is in Idle state.
 // Since this function runs in an interrupt context actual start of execution
 // is registered as a single run task to be started from the foreground process.
-// TODO: add debounce?
+
 ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
 {
     if(!is_high && macro_id == 0) {
@@ -307,13 +305,8 @@ ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
 
         if(plugin_settings.macro[idx].action_idx)
             grbl.enqueue_realtime_command(action[plugin_settings.macro[idx].action_idx]);
-        else if(state_get() == STATE_IDLE) {
-            command = plugin_settings.macro[idx].data;
-            if(!(*command == '\0' || *command == IOPORT_UNASSIGNED)) {           // If valid command
-                macro_id = idx + 1;
-                task_add_immediate(run_macro, NULL);  // register run_macro function to be called from foreground process.
-            }
-        }
+        else if(state_get() == STATE_IDLE)
+            task_add_immediate(run_macro, plugin_settings.macro[idx].data);  // register run_macro function to be called from foreground process.
     }
 }
 
@@ -367,11 +360,8 @@ static bool keypress_preview (const char c, uint_fast16_t state)
 #endif
     }
 
-    if(macro != -1) {
-        command = plugin_settings.macro[macro].data;
-        if(!(*command == '\0' || *command == IOPORT_UNASSIGNED)) // If valid command
-            run_macro(NULL);                        // run macro.
-    }
+    if(macro != -1)
+        run_macro(plugin_settings.macro[macro].data);
 
     return macro != -1 || (on_keypress_preview && on_keypress_preview(c, state));
 }
@@ -498,8 +488,6 @@ static const setting_detail_t macro_settings[] = {
 #endif
 };
 
-#ifndef NO_SETTINGS_DESCRIPTIONS
-
 static const setting_descr_t macro_settings_descr[] = {
     { Setting_MacroBase, "Macro content, separate blocks (lines) with the vertical bar character |." },
 #if MACROS_ENABLE & 0x01
@@ -507,8 +495,6 @@ static const setting_descr_t macro_settings_descr[] = {
     { Setting_ButtonActionBase, "Action to take when the pin is triggered."  },
 #endif
 };
-
-#endif
 
 // Write settings to non volatile storage (NVS).
 static void macro_settings_save (void)
@@ -670,7 +656,7 @@ static void macro_settings_load (void)
         if((port[idx] = plugin_settings.macro[idx].port) == IOPORT_UNASSIGNED)
             continue;
         if((pin = ioport_get_info(Port_Digital, Port_Input, port[idx])) && !(pin->cap.irq_mode & IRQ_Mode_Falling)) // Is port interrupt capable?
-            port[idx] = IOPORT_UNASSIGNED;                                                                                       // No, flag it as not claimed.
+            port[idx] = IOPORT_UNASSIGNED;                                                                          // No, flag it as not claimed.
         else if(ioport_claim(Port_Digital, Port_Input, &port[idx], "Macro pin")) {                                  // Try to claim the port.
             if(pin->cap.debounce) {
                 gpio_in_config_t config = {
@@ -715,7 +701,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.12");
+        report_plugin("Macros", "0.13");
 }
 
 void macros_init (void)
@@ -726,10 +712,8 @@ void macros_init (void)
         .n_groups = sizeof(macro_groups) / sizeof(setting_group_detail_t),
         .settings = macro_settings,
         .n_settings = sizeof(macro_settings) / sizeof(setting_detail_t),
-    #ifndef NO_SETTINGS_DESCRIPTIONS
         .descriptions = macro_settings_descr,
         .n_descriptions = sizeof(macro_settings_descr) / sizeof(setting_descr_t),
-    #endif
         .save = macro_settings_save,
         .load = macro_settings_load,
         .restore = macro_settings_restore,
