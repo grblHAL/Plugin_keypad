@@ -69,7 +69,7 @@ static machine_status_packet_t status_packet, prev_status = {0};
 
 static void send_status_info (void *data)
 {
-    uint_fast8_t idx = N_AXIS; //min(4, N_AXIS);
+    uint_fast8_t idx = min(4, N_AXIS);
 
     system_convert_array_steps_to_mpos(status_packet.coordinate.values, sys.position);
 
@@ -98,7 +98,7 @@ static void send_status_info (void *data)
 
     status_packet.feed_rate = st_get_realtime_rate();
 
-    if(true) {//msgtype || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype))) {
+    if(msgtype || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype))) {
 
         size_t len = ((status_packet.msgtype = msgtype)) ? offsetof(machine_status_packet_t, msg) : offsetof(machine_status_packet_t, msgtype);
 
