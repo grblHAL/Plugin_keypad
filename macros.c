@@ -144,7 +144,7 @@ typedef struct {
     macro_setting_t macro[N_MACROS];
 } macro_settings_t;
 
-static uint8_t n_ports = 0;
+static uint8_t max_port = 0;
 static char *command = NULL, format[8], max_length[5];
 static macro_id_t macro_id = 0;
 static nvs_address_t nvs_address;
@@ -159,7 +159,7 @@ static io_stream_t active_stream;
 #if MACROS_ENABLE & 0x01
 
 static uint8_t port[N_MACROS];
-static char max_port[4];
+static char max_ports[4];
 
 static uint8_t action[] = {
     0, // run macro
@@ -375,106 +375,56 @@ static const setting_group_detail_t macro_groups [] = {
     { Group_Root, Group_UserSettings, "Macros"}
 };
 
-static setting_id_t normalize_id (setting_id_t setting, uint_fast16_t *idx)
+static status_code_t macro_set (setting_id_t id, char *value)
 {
-    *idx = setting % 10;
-
-    return (setting_id_t)(setting - *idx);
-}
-
-static status_code_t macro_set (setting_id_t setting, char *value)
-{
-    uint_fast16_t idx;
-
-    normalize_id(setting, &idx);
-
-    if(idx < N_MACROS)
-        strcpy(plugin_settings.macro[idx].data, value);
-
-    return idx < N_MACROS ? Status_OK : Status_Unhandled;
-}
-
-static char *macro_get (setting_id_t setting)
-{
-    uint_fast16_t idx;
-
-    normalize_id(setting, &idx);
-
-    return idx < N_MACROS ? plugin_settings.macro[idx].data : NULL;
-}
-
-#if MACROS_ENABLE & 0x01
-
-static status_code_t macro_set_int (setting_id_t setting, uint_fast16_t value)
-{
-    uint_fast16_t idx;
-    status_code_t status = Status_OK;
-
-    setting = normalize_id(setting, &idx);
-
-    if(idx < n_macros) switch(setting) {
-
-        case Setting_ButtonActionBase:
-            plugin_settings.macro[idx].action_idx = value;
-            break;
-
-        default:
-            status = Status_Unhandled;
-            break;
-    }
-
-    return status;
-}
-
-static uint_fast16_t macro_get_int (setting_id_t setting)
-{
-    uint_fast16_t idx, value = 0;
-
-    setting = normalize_id(setting, &idx);
-
-    if(idx < n_macros) switch(setting) {
-
-        case Setting_ButtonActionBase:
-            value = plugin_settings.macro[idx].action_idx;
-            break;
-
-        default:
-            break;
-    }
-
-    return value;
-}
-
-static status_code_t set_port (setting_id_t setting, float value)
-{
-    uint_fast16_t idx;
-
-    if(!isintf(value))
-        return Status_BadNumberFormat;
-
-    setting = normalize_id(setting, &idx);
-
-    plugin_settings.macro[idx].port = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
+    strcpy(plugin_settings.macro[id - Setting_MacroBase].data, value);
 
     return Status_OK;
 }
 
-static float get_port (setting_id_t setting)
+static char *macro_get (setting_id_t id)
 {
-    uint_fast16_t idx;
-
-    setting = normalize_id(setting, &idx);
-
-    return plugin_settings.macro[idx].port >= n_ports ? -1.0f : (float)plugin_settings.macro[idx].port;
+    return plugin_settings.macro[id - Setting_MacroBase].data;
 }
 
+#if MACROS_ENABLE & 0x01
+
+static status_code_t macro_set_int (setting_id_t id, uint_fast16_t value)
+{
+    plugin_settings.macro[id - Setting_ButtonActionBase].action_idx = (uint8_t)value;
+
+    return Status_OK;
+}
+
+static uint_fast16_t macro_get_int (setting_id_t id)
+{
+    return (uint_fast16_t)plugin_settings.macro[id - Setting_ButtonActionBase].action_idx;
+}
+
+static status_code_t set_port (setting_id_t id, float value)
+{
+    if(!isintf(value))
+        return Status_BadNumberFormat;
+
+    if(!ioport_claimable(Port_Digital, Port_Input, (uint8_t)value))
+        return Status_AuxiliaryPortUnavailable;
+
+    plugin_settings.macro[id - Setting_MacroPortBase].port = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
+
+    return Status_OK;
+}
+
+static float get_port (setting_id_t id)
+{
+    return plugin_settings.macro[id - Setting_MacroPortBase].port > max_port ? -1.0f : (float)plugin_settings.macro[id - Setting_MacroPortBase].port;
+}
 
 static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
 {
 #ifdef MACRO_1_AUXIN_PIN
     return false;
 #else
-    return offset < n_ports;
+    return offset < n_macros;
 #endif
 }
 
@@ -483,7 +433,7 @@ static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t
 static const setting_detail_t macro_settings[] = {
     { Setting_MacroBase, Group_UserSettings, "Macro ?", NULL, Format_String, format, "0", max_length, Setting_NonCoreFn, macro_set, macro_get, NULL, MACRO_OPTS },
 #if MACROS_ENABLE & 0x01
-    { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Decimal, "-#0", "-1", max_port, Setting_NonCoreFn, set_port, get_port, is_setting_available, MACRO_OPTS },
+    { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Decimal, "-#0", "-1", max_ports, Setting_NonCoreFn, set_port, get_port, is_setting_available, MACRO_OPTS },
     { Setting_ButtonActionBase, Group_UserSettings, "Button ? action", NULL, Format_RadioButtons, BUTTON_ACTIONS, NULL, NULL, Setting_NonCoreFn, macro_set_int, macro_get_int, NULL, MACRO_OPTS },
 #endif
 };
@@ -505,14 +455,18 @@ static void macro_settings_save (void)
 // Restore default settings and write to non volatile storage (NVS).
 static void macro_settings_restore (void)
 {
-    uint_fast8_t idx = N_MACROS, port = n_ports > N_MACROS ? n_ports - N_MACROS : 0;
+    uint_fast8_t idx = n_macros;
 
     memset(&plugin_settings, 0xFF, sizeof(macro_settings_t));
 
-    // Register empty macro strings and set default port numbers if mapping is available.
-    for(idx = 0; idx < N_MACROS; idx++) {
+#if MACROS_ENABLE & 0x01
+    plugin_settings.macro[idx - 1].port = ioport_find_free(Port_Digital, Port_Input, (pin_cap_t){ .claimable = On }, NULL);
+#endif
 
-        plugin_settings.macro[idx].action_idx = 0;
+    // Register empty macro strings and set default port numbers if mapping is available.
+    do {
+
+        plugin_settings.macro[--idx].action_idx = 0;
         *plugin_settings.macro[idx].data = '\0';
 
         switch(idx) {
@@ -557,12 +511,11 @@ static void macro_settings_restore (void)
                 break;
 #endif
             default:
-                plugin_settings.macro[idx].port = port < n_ports ? port++ : IOPORT_UNASSIGNED;
-                break;
+                if(n_macros > 1 && idx < n_macros - 1)
+                    plugin_settings.macro[idx].port = ioport_find_free(Port_Digital, Port_Input, (pin_cap_t){ .claimable = On }, uitoa(plugin_settings.macro[idx + 1].port));
+               break;
         }
-        if(plugin_settings.macro[idx].port >= n_ports)
-            plugin_settings.macro[idx].port = IOPORT_UNASSIGNED;
-    }
+    } while(idx);
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(macro_settings_t), true);
 }
@@ -638,7 +591,7 @@ static void macro_settings_load (void)
 
     uint_fast8_t idx = n_macros, n_ok = 0;
 
- #if MACROS_AUX_EXPLICIT
+  #if MACROS_AUX_EXPLICIT
 
     do {
         if(ioports_enumerate(Port_Digital, Port_Input, (pin_cap_t){ .irq_mode = IRQ_Mode_Falling, .claimable = On }, macro_claim_port, (void *)&pin_map[--idx]))
@@ -682,6 +635,7 @@ static void macro_settings_load (void)
 
     if(n_ok < n_macros)
         task_run_on_startup(report_warning, "Macro plugin failed to claim all needed ports!");
+
 #endif // MACROS_ENABLE & 0x01
 }
 
@@ -695,13 +649,24 @@ static bool macro_settings_iterator (const setting_detail_t *setting, setting_ou
     return true;
 }
 
+static setting_id_t macro_settings_normalize (setting_id_t id)
+{
+    return (id > Setting_MacroBase && id < Setting_MacroBase + N_MACROS) ||
+#if MACROS_ENABLE & 0x01
+            (id > Setting_MacroPortBase && id < Setting_MacroPortBase + N_MACROS) ||
+             (id > Setting_ButtonActionBase && id < Setting_ButtonActionBase + N_MACROS)
+#endif
+              ? (setting_id_t)(id - (id % 10))
+              : id;
+}
+
 // Add info about our plugin to the $I report.
 static void report_options (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.13");
+        report_plugin("Macros", "0.14");
 }
 
 void macros_init (void)
@@ -717,16 +682,18 @@ void macros_init (void)
         .save = macro_settings_save,
         .load = macro_settings_load,
         .restore = macro_settings_restore,
-        .iterator = macro_settings_iterator
+        .iterator = macro_settings_iterator,
+        .normalize = macro_settings_normalize
     };
 
 #if MACROS_ENABLE & 0x01
-    if(!(n_ports = ioports_available(Port_Digital, Port_Input)))
+    if(!(max_port = ioports_available(Port_Digital, Port_Input)))
         return;
 
-    n_macros = min(N_MACROS, n_ports);
+    n_macros = min(N_MACROS, max_port);
     // Used for setting value validation.
-    strcpy(max_port, uitoa(n_ports ? n_ports - 1 : 0));
+    strcpy(max_ports, uitoa((max_port = ioport_find_free(Port_Digital, Port_Input, (pin_cap_t){ .claimable = On }, NULL))));
+
 #endif
 
     // If enough free non volatile memory register our plugin with the core.
