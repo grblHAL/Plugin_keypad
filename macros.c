@@ -144,9 +144,7 @@ typedef struct {
     macro_setting_t macro[N_MACROS];
 } macro_settings_t;
 
-static uint8_t max_port = 0;
 static char *command = NULL, format[8], max_length[5];
-static macro_id_t macro_id = 0;
 static nvs_address_t nvs_address;
 static macro_settings_t plugin_settings;
 static on_report_options_ptr on_report_options;
@@ -158,8 +156,10 @@ static io_stream_t active_stream;
 
 #if MACROS_ENABLE & 0x01
 
+static uint8_t max_port = 0;
 static uint8_t port[N_MACROS];
 static char max_ports[4];
+static macro_id_t macro_id = 0;
 
 static uint8_t action[] = {
     0, // run macro
@@ -651,10 +651,10 @@ static bool macro_settings_iterator (const setting_detail_t *setting, setting_ou
 
 static setting_id_t macro_settings_normalize (setting_id_t id)
 {
-    return (id > Setting_MacroBase && id < Setting_MacroBase + N_MACROS) ||
+    return (id > Setting_MacroBase && id < Setting_MacroBase + N_MACROS)
 #if MACROS_ENABLE & 0x01
-            (id > Setting_MacroPortBase && id < Setting_MacroPortBase + N_MACROS) ||
-             (id > Setting_ButtonActionBase && id < Setting_ButtonActionBase + N_MACROS)
+            || (id > Setting_MacroPortBase && id < Setting_MacroPortBase + N_MACROS)
+             || (id > Setting_ButtonActionBase && id < Setting_ButtonActionBase + N_MACROS)
 #endif
               ? (setting_id_t)(id - (id % 10))
               : id;
@@ -666,7 +666,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.14");
+        report_plugin("Macros", "0.15");
 }
 
 void macros_init (void)
