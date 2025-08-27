@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "i2c_interface.h"
 
@@ -440,7 +441,7 @@ void display_init (void)
 
         status_packet.address = 0;
     #if N_AXIS == 3
-        status_packet.coordinate.a = 0xFFFFFFFF; // TODO: should be changed to NAN
+        status_packet.coordinate.a = NAN;
     #endif
 
         // delay final setup until startup is complete
