@@ -29,16 +29,15 @@
 #define static_assert _Static_assert
 #endif
 
-typedef uint8_t msg_type_t;
 typedef uint8_t machine_state_t;
 
-enum msg_type_t {
+typedef enum {
     MachineMsg_None = 0,
 // 1-127 reserved for message string length
     MachineMsg_Overrides = 253,
     MachineMsg_WorkOffset = 254,
     MachineMsg_ClearMessage = 255,
-};
+} __attribute__ ((__packed__)) msg_type_t;
 
 enum machine_state_t {
     MachineState_Alarm = 1,
