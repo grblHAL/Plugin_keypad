@@ -508,8 +508,10 @@ static void macro_settings_restore (void)
 #endif
 
             default:
+#if MACROS_ENABLE & 0x01
                 if(n_macros > 1 && idx < n_macros - 1)
                     plugin_settings.macro[idx].port = d_in.get_next(&d_in, plugin_settings.macro[idx + 1].port, label[idx], pin_caps);
+#endif
                break;
         }
     } while(idx);
