@@ -90,12 +90,6 @@ typedef struct {
     uint_fast8_t idx;
 } macro_pin_t;
 
-static uint8_t n_macros;
-
-#else
-
-static uint8_t n_macros = N_MACROS;
-
 #endif
 
 #if MACROS_ENABLE & 0x02
@@ -145,10 +139,10 @@ typedef struct {
     macro_setting_t macro[N_MACROS];
 } macro_settings_t;
 
+static uint8_t n_macros = N_MACROS;
 static char *command = NULL, format[8], max_length[5];
 static nvs_address_t nvs_address;
 static macro_settings_t plugin_settings;
-static const pin_cap_t pin_caps = { .irq_mode = IRQ_Mode_Falling };
 
 static on_report_options_ptr on_report_options;
 static on_macro_execute_ptr on_macro_execute;
@@ -159,7 +153,9 @@ static io_stream_t active_stream;
 
 #if MACROS_ENABLE & 0x01
 
-static uint8_t port[N_MACROS];
+static const pin_cap_t pin_caps = { .irq_mode = IRQ_Mode_Falling };
+
+static uint8_t n_explicit = 0, port[N_MACROS];
 static const char *const label[] = { "Macro 1 input", "Macro 2 input", "Macro 3 input", "Macro 4 input", "Macro 5 input", "Macro 6 input", "Macro 7 input", "Macro 8 input" };
 static macro_id_t macro_id = 0;
 static io_port_cfg_t d_in;
@@ -416,11 +412,7 @@ static float get_port (setting_id_t id)
 
 static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
 {
-#if MACROS_AUX_EXPLICIT
-    return false;
-#else
-    return offset < n_macros;
-#endif
+    return offset >= n_explicit && offset < n_macros;
 }
 
 #endif // MACROS_ENABLE & 0x01
@@ -454,8 +446,9 @@ static void macro_settings_restore (void)
 
     memset(&plugin_settings, 0xFF, sizeof(macro_settings_t));
 
-#if MACROS_ENABLE & 0x01
-    plugin_settings.macro[idx - 1].port = d_in.get_next(&d_in, IOPORT_UNASSIGNED, label[idx - 1], pin_caps);
+#if !MACROS_AUX_EXPLICIT && (MACROS_ENABLE & 0x01)
+    uint_fast8_t ports = min(n_macros, d_in.n_ports);
+    plugin_settings.macro[ports - 1].port = d_in.get_next(&d_in, IOPORT_UNASSIGNED, label[ports - 1], pin_caps);
 #endif
 
     // Register empty macro strings and set default port numbers if mapping is available.
@@ -508,8 +501,8 @@ static void macro_settings_restore (void)
 #endif
 
             default:
-#if MACROS_ENABLE & 0x01
-                if(n_macros > 1 && idx < n_macros - 1)
+#if !MACROS_AUX_EXPLICIT && (MACROS_ENABLE & 0x01)
+                if(ports > 1 && idx < ports - 1)
                     plugin_settings.macro[idx].port = d_in.get_next(&d_in, plugin_settings.macro[idx + 1].port, label[idx], pin_caps);
 #endif
                break;
@@ -551,35 +544,37 @@ static void macro_settings_load (void)
 #if MACROS_AUX_EXPLICIT
 
     static macro_pin_t pin_map[] = {
-    #ifdef MACRO_1_AUXIN_PORT
+ #ifdef MACRO_1_AUXIN_PIN
+  #ifdef MACRO_1_AUXIN_PORT
         { .pin = MACRO_1_AUXIN_PIN, .port = MACRO_1_AUXIN_PORT,  },
-    #else
+  #else
         { .pin = MACRO_1_AUXIN_PIN, .port = NULL },
-    #endif
-    #if N_MACROS > 1 && defined(MACRO_2_AUXIN_PIN)
-      #ifdef MACRO_2_AUXIN_PORT
+  #endif
+ #endif
+ #if N_MACROS > 1 && defined(MACRO_2_AUXIN_PIN)
+  #ifdef MACRO_2_AUXIN_PORT
         { .pin = MACRO_2_AUXIN_PIN, .port = MACRO_2_AUXIN_PORT,  },
-      #else
+  #else
         { .pin = MACRO_2_AUXIN_PIN, .port = NULL },
-      #endif
-    #endif
-    #if N_MACROS > 2 && defined(MACRO_3_AUXIN_PIN)
-      #ifdef MACRO_3_AUXIN_PORT
+  #endif
+ #endif
+ #if N_MACROS > 2 && defined(MACRO_3_AUXIN_PIN)
+  #ifdef MACRO_3_AUXIN_PORT
         { .pin = MACRO_3_AUXIN_PIN, .port = MACRO_3_AUXIN_PORT,  },
-      #else
+  #else
         { .pin = MACRO_3_AUXIN_PIN, .port = NULL },
-      #endif
-    #endif
-    #if N_MACROS > 3 && defined(MACRO_4_AUXIN_PIN)
-      #ifdef MACRO_4_AUXIN_PORT
+  #endif
+ #endif
+ #if N_MACROS > 3 && defined(MACRO_4_AUXIN_PIN)
+  #ifdef MACRO_4_AUXIN_PORT
         { .pin = MACRO_4_AUXIN_PIN, .port = MACRO_4_AUXIN_PORT,  },
-      #else
+  #else
         { .pin = MACRO_4_AUXIN_PIN, .port = NULL },
-      #endif
-    #endif
+  #endif
+ #endif
     };
 
-    n_macros = sizeof(pin_map) / sizeof(macro_pin_t);
+    n_explicit = sizeof(pin_map) / sizeof(macro_pin_t);
 
 #endif
 
@@ -588,7 +583,23 @@ static void macro_settings_load (void)
 
 #if MACROS_ENABLE & 0x01
 
+    xbar_t *pin = NULL;
     uint_fast8_t idx = n_macros, n_ok = 0;
+
+    if(idx > n_explicit) do {
+        idx--;
+        if((port[idx] = plugin_settings.macro[idx].port) != IOPORT_UNASSIGNED) {
+            if((pin = d_in.claim(&d_in, &port[idx], label[idx], pin_caps))) { // Try to claim the port.
+                if(pin->cap.debounce) {
+                    gpio_in_config_t config = {
+                        .debounce = On,
+                        .pull_mode = PullMode_Up
+                    };
+                    pin->config(pin, &config, false);
+                }
+            }
+        }
+    } while(idx > n_explicit);
 
   #if MACROS_AUX_EXPLICIT
 
@@ -599,25 +610,6 @@ static void macro_settings_load (void)
             port[idx] = pin_map[idx].aux_port;
         else
             port[idx] = IOPORT_UNASSIGNED;
-    } while(idx);
-
-  #else
-
-    xbar_t *pin = NULL;
-
-    do {
-        idx--;
-        if((port[idx] = plugin_settings.macro[idx].port) == IOPORT_UNASSIGNED)
-            continue;
-        if((pin = d_in.claim(&d_in, &port[idx], label[idx], pin_caps))) { // Try to claim the port.
-            if(pin->cap.debounce) {
-                gpio_in_config_t config = {
-                    .debounce = On,
-                    .pull_mode = PullMode_Up
-                };
-                pin->config(pin, &config, false);
-            }
-        }
     } while(idx);
 
   #endif // MACROS_AUX_EXPLICIT
@@ -663,7 +655,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.16");
+        report_plugin("Macros", "0.17");
 }
 
 void macros_init (void)
@@ -684,10 +676,13 @@ void macros_init (void)
     };
 
 #if MACROS_ENABLE & 0x01
-    if(ioports_cfg(&d_in, Port_Digital, Port_Input)->n_ports && (nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
-#else
-    if((nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
+    ioports_cfg(&d_in, Port_Digital, Port_Input);
+ #if MACROS_ENABLE == 1
+    n_macros = min(n_macros, d_in.n_ports);
+ #endif
 #endif
+
+    if(n_macros && (nvs_address = nvs_alloc(sizeof(macro_settings_t)))) {
 
         // Register settings.
         settings_register(&setting_details);
