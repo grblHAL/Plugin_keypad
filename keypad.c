@@ -57,7 +57,7 @@ static on_report_options_ptr on_report_options;
 
 keypad_t keypad = {0};
 
-static const setting_detail_t keypad_settings[] = {
+PROGMEM static const setting_detail_t keypad_settings[] = {
     { Setting_JogStepSpeed, Group_Jogging, "Step jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.step_speed, NULL, NULL },
     { Setting_JogSlowSpeed, Group_Jogging, "Slow jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_speed, NULL, NULL },
     { Setting_JogFastSpeed, Group_Jogging, "Fast jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_speed, NULL, NULL },
@@ -66,9 +66,7 @@ static const setting_detail_t keypad_settings[] = {
     { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL }
 };
 
-#ifndef NO_SETTINGS_DESCRIPTIONS
-
-static const setting_descr_t keypad_settings_descr[] = {
+PROGMEM static const setting_descr_t keypad_settings_descr[] = {
     { Setting_JogStepSpeed, "Step jogging speed in millimeters per minute." },
     { Setting_JogSlowSpeed, "Slow jogging speed in millimeters per minute." },
     { Setting_JogFastSpeed, "Fast jogging speed in millimeters per minute." },
@@ -76,8 +74,6 @@ static const setting_descr_t keypad_settings_descr[] = {
     { Setting_JogSlowDistance, "Jog distance before automatic stop." },
     { Setting_JogFastDistance, "Jog distance before automatic stop." }
 };
-
-#endif
 
 static void keypad_settings_save (void)
 {
@@ -110,10 +106,8 @@ static void keypad_settings_load (void)
 static setting_details_t setting_details = {
     .settings = keypad_settings,
     .n_settings = sizeof(keypad_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
     .descriptions = keypad_settings_descr,
     .n_descriptions = sizeof(keypad_settings_descr) / sizeof(setting_descr_t),
-#endif
     .load = keypad_settings_load,
     .restore = keypad_settings_restore,
     .save = keypad_settings_save
@@ -482,7 +476,7 @@ static void onReportOptions (bool newopt)
         report_plugin("Keypad", KEYPAD_VERSION);
 }
 
-static ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(char c)
+static ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(uint8_t c)
 {
     uint32_t bptr = (keybuf.head + 1) & (KEYBUF_SIZE - 1);    // Get next head pointer
 

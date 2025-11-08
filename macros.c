@@ -33,6 +33,9 @@
     $450=G0Y5|G1X0F50
     $451=G0x0Y0Z0
 
+  Macros can also be run via M81x where x is the macro number corresponding to the $49x setting.
+  The macro will be run regardless of the $59x action binding.
+
   Tip: use the $pins command to check the port mapping.
 */
 
@@ -145,6 +148,7 @@ static nvs_address_t nvs_address;
 static macro_settings_t plugin_settings;
 
 static on_report_options_ptr on_report_options;
+static user_mcode_ptrs_t user_mcode;
 static on_macro_execute_ptr on_macro_execute;
 static on_macro_return_ptr on_macro_return = NULL;
 static status_message_ptr status_message = NULL;
@@ -178,7 +182,7 @@ static uint8_t action[] = {
 
 #endif
 
-static int16_t get_macro_char (void);
+static int32_t get_macro_char (void);
 static status_code_t trap_status_messages (status_code_t status_code);
 
 // Ends macro execution if currently running
@@ -212,7 +216,7 @@ static void plugin_reset (void)
 // Macro stream input function.
 // Reads character by character from the macro and returns them when
 // requested by the foreground process.
-static int16_t get_macro_char (void)
+static int32_t get_macro_char (void)
 {
     static bool eol_ok = false;
 
@@ -231,7 +235,7 @@ static int16_t get_macro_char (void)
     if((eol_ok = c == '|')) // If character is vertical bar
         c = ASCII_LF;       // return a linefeed character.
 
-    return (uint16_t)c;
+    return (int32_t)c;
 }
 
 // If an error is detected macro execution will be stopped and the status_code reported.
@@ -284,6 +288,33 @@ static status_code_t macro_execute (macro_id_t macro)
     }
 
     return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro) : Status_Unhandled);
+}
+
+static user_mcode_type_t mcode_check (user_mcode_t mcode)
+{
+    return mcode >= Macro_Execute0 && mcode < Macro_Execute0 + N_MACROS
+                     ? UserMCode_Normal
+                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Unsupported);
+}
+
+static status_code_t mcode_validate (parser_block_t *gc_block)
+{
+    return gc_block->user_mcode >= Macro_Execute0 && gc_block->user_mcode < Macro_Execute0 + N_MACROS
+            ? Status_OK
+            : (user_mcode.validate ? user_mcode.validate(gc_block) : Status_Unhandled);
+}
+
+static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
+{
+    bool handled = gc_block->user_mcode >= Macro_Execute0 && gc_block->user_mcode < Macro_Execute0 + N_MACROS;
+
+    if(handled && state != STATE_CHECK_MODE) {
+        protocol_buffer_synchronize();
+        macro_execute(gc_block->user_mcode - Macro_Execute0 + 1);
+    }
+
+    if(!handled && user_mcode.execute)
+        user_mcode.execute(state, gc_block);
 }
 
 #if MACROS_ENABLE & 0x01
@@ -370,7 +401,7 @@ static bool keypress_preview (const char c, uint_fast16_t state)
 // Add info about our settings for $help and enumerations.
 // Potentially used by senders for settings UI.
 
-static const setting_group_detail_t macro_groups [] = {
+PROGMEM static const setting_group_detail_t macro_groups [] = {
     { Group_Root, Group_UserSettings, "Macros"}
 };
 
@@ -417,7 +448,7 @@ static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t
 
 #endif // MACROS_ENABLE & 0x01
 
-static const setting_detail_t macro_settings[] = {
+PROGMEM static const setting_detail_t macro_settings[] = {
     { Setting_MacroBase, Group_UserSettings, "Macro ?", NULL, Format_String, format, "0", max_length, Setting_NonCoreFn, macro_set, macro_get, NULL, MACRO_OPTS },
 #if MACROS_ENABLE & 0x01
     { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Decimal, "-#0", "-1", d_in.port_maxs, Setting_NonCoreFn, set_port, get_port, is_setting_available, MACRO_OPTS },
@@ -425,7 +456,7 @@ static const setting_detail_t macro_settings[] = {
 #endif
 };
 
-static const setting_descr_t macro_settings_descr[] = {
+PROGMEM static const setting_descr_t macro_settings_descr[] = {
     { Setting_MacroBase, "Macro content, separate blocks (lines) with the vertical bar character |." },
 #if MACROS_ENABLE & 0x01
     { Setting_MacroPortBase, "Aux port number to use for the trigger pin input. Set to -1 to disable." SETTINGS_HARD_RESET_REQUIRED },
@@ -655,10 +686,10 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.17");
+        report_plugin("Macros", "0.18");
 }
 
-void macros_init (void)
+FLASHMEM void macros_init (void)
 {
     // Settings descriptor used by the core when interacting with this plugin.
     static setting_details_t setting_details = {
@@ -698,6 +729,12 @@ void macros_init (void)
 
         on_macro_execute = grbl.on_macro_execute;
         grbl.on_macro_execute = macro_execute;
+
+        memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
+
+        grbl.user_mcode.check = mcode_check;
+        grbl.user_mcode.validate = mcode_validate;
+        grbl.user_mcode.execute = mcode_execute;
 
         // Hook into the driver reset chain so we
         // can restore normal operation if a reset happens
