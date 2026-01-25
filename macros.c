@@ -149,7 +149,7 @@ static macro_settings_t plugin_settings;
 
 static on_report_options_ptr on_report_options;
 static user_mcode_ptrs_t user_mcode;
-static on_macro_execute_ptr on_macro_execute;
+static on_macro_execute_ptr on_macro_execute = NULL;
 static on_macro_return_ptr on_macro_return = NULL;
 static status_message_ptr status_message = NULL;
 static driver_reset_ptr driver_reset;
@@ -278,7 +278,7 @@ static void run_macro (void *cmd)
     }
 }
 
-static status_code_t macro_execute (macro_id_t macro)
+static status_code_t macro_execute (macro_id_t macro, parameter_words_t args, uint32_t repeats)
 {
     bool ok = false;
 
@@ -287,7 +287,7 @@ static status_code_t macro_execute (macro_id_t macro)
             run_macro(plugin_settings.macro[macro - 1].data);
     }
 
-    return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro) : Status_Unhandled);
+    return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro, args, repeats) : Status_Unhandled);
 }
 
 static user_mcode_type_t mcode_check (user_mcode_t mcode)
@@ -310,7 +310,7 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
 
     if(handled && state != STATE_CHECK_MODE) {
         protocol_buffer_synchronize();
-        macro_execute(gc_block->user_mcode - Macro_Execute0 + 1);
+        macro_execute(gc_block->user_mcode - Macro_Execute0 + 1, (parameter_words_t){0}, 1);
     }
 
     if(!handled && user_mcode.execute)
@@ -686,7 +686,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.18");
+        report_plugin("Macros", "0.19");
 }
 
 FLASHMEM void macros_init (void)
@@ -727,8 +727,8 @@ FLASHMEM void macros_init (void)
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = report_options;
 
-        on_macro_execute = grbl.on_macro_execute;
-        grbl.on_macro_execute = macro_execute;
+//        on_macro_execute = grbl.on_macro_execute;
+//        grbl.on_macro_execute = macro_execute;
 
         memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
 

@@ -34,7 +34,7 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
 
-#define KEYPAD_VERSION "1.42"
+#define KEYPAD_VERSION "1.43"
 
 typedef struct {
     char buf[KEYBUF_SIZE];
@@ -221,7 +221,7 @@ static void keypad_process_keypress (void *data)
                 break;
 
             case 'o':                                   // Cycle coordinate system
-                strcpy(command, gc_coord_system_to_str(gc_state.modal.coord_system.id < N_WorkCoordinateSystems - 1 ? gc_state.modal.coord_system.id + 1 : 0));
+                strcpy(command, gc_coord_system_to_str(gc_state.modal.g5x_offset.id < N_WorkCoordinateSystems - 1 ? gc_state.modal.g5x_offset.id + 1 : 0));
                 break;
 
             case 'H':                                   // Home axes
@@ -353,7 +353,7 @@ static void keypad_process_keypress (void *data)
             case JOG_XLZD:                              // Jog -X-Z
                 jog_command(command, "X-?Z-?F");
                 break;
-#if N_AXIS > 3
+#ifdef A_AXIS
              case JOG_AR:                               //  Jog +A
                 jog_command(command, "A?F");
                 break;

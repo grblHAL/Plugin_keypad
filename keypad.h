@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2017-2024 Terje Io
+  Copyright (c) 2017-2025 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@
 #define JOG_XRZD 'v'
 #define JOG_XLZU 'u'
 #define JOG_XLZD 'x'
-#if N_AXIS > 3
+#ifdef A_AXIS
 #define JOG_AR   'A'
 #define JOG_AL   'a'
 #endif
