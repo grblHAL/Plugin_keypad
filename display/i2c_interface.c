@@ -345,7 +345,7 @@ static void add_reports (report_tracking_flags_t report)
     }
 
     if(report.wco)
-        status_packet.current_wcs = gc_state.modal.coord_system.id;
+        status_packet.current_wcs = gc_state.modal.g5x_offset.id;
 
     if(report.homed) {
         axes_signals_t homing = {sys.homing.mask ? sys.homing.mask : AXES_BITMASK};
