@@ -54,6 +54,7 @@ static on_wco_changed_ptr on_wco_changed;
 static on_rt_reports_added_ptr on_rt_reports_added;
 static on_report_handlers_init_ptr on_report_handlers_init;
 static status_message_ptr status_message;
+static report_tracking_flags_t rt_report;
 //static feedback_message_ptr feedback_message;
 
 #if KEYPAD_ENABLE
@@ -65,11 +66,12 @@ static on_jogdata_changed_ptr on_jogdata_changed;
 #define SEND_STATUS_JOG_DELAY 100
 #define SEND_STATUS_NOW_DELAY 20
 
-static machine_status_packet_t status_packet, prev_status = {0};
+static machine_status_packet_t status_packet, prev_status = {};
 
 static void send_status_info (void *data)
 {
     uint_fast8_t idx = min(4, N_AXIS);
+    report_tracking_flags_t report;
 
     system_convert_array_steps_to_mpos(status_packet.coordinate.values, sys.position);
 
@@ -83,8 +85,69 @@ static void send_status_info (void *data)
 
     spindle_ptrs_t *spindle = spindle_get(0);
 
+    if((report.value = rt_report.value)) {
+
+        rt_report.value = 0;
+
+        if(report.coolant)
+            status_packet.coolant_state = hal.coolant.get_state();
+
+        if(report.spindle) {
+            spindle_ptrs_t *spindle = spindle_get(0);
+            status_packet.spindle_state = spindle->get_state(spindle);
+        }
+
+        if(report.overrides) {
+            spindle_ptrs_t *spindle = spindle_get(0);
+            msgtype = MachineMsg_Overrides;
+            status_packet.feed_override = sys.override.feed_rate > 255 ? 255 : sys.override.feed_rate;
+            status_packet.spindle_override = spindle->param->override_pct > 255 ? 255 : spindle->param->override_pct;
+            status_packet.spindle_stop = sys.override.spindle_stop.value;
+        }
+
+        if(report.wco)
+            status_packet.current_wcs = gc_state.modal.g5x_offset.id;
+
+        if(report.homed) {
+            axes_signals_t homing = {sys.homing.mask ? sys.homing.mask : AXES_BITMASK};
+            status_packet.home_state.mask = sys.homing.mask & sys.homed.mask;
+            status_packet.machine_modes.homed = (homing.mask & sys.homed.mask) == homing.mask;
+        }
+
+        if(report.tlo_reference)
+            status_packet.machine_modes.tlo_referenced = sys.tlo_reference_set.mask != 0;
+
+        if(report.xmode)
+            status_packet.machine_modes.diameter = gc_state.modal.diameter_mode;
+
+        if(report.mpg_mode)
+            status_packet.machine_modes.mpg = sys.mpg_mode;
+    }
+
     status_packet.signals = hal.control.get_state();
     status_packet.limits = limit_signals_merge(hal.limits.get_state());
+    status_packet.feed_rate = st_get_realtime_rate();
+    status_packet.machine_modes.imperial = gc_state.modal.units_imperial;
+
+    if((status_packet.machine_modes.reports_imperial = settings.flags.report_inches)) {
+
+        idx = min(4, N_AXIS);
+
+        status_packet.feed_rate *= INCH_PER_MM;
+
+        do {
+            if(--idx == X_AXIS && gc_state.modal.diameter_mode)
+                status_packet.coordinate.values[idx] *= (INCH_PER_MM * 2.0f);
+#if N_AXIS > 3
+            else if(idx > Z_AXIS && !bit_istrue(settings.steppers.is_rotary.mask, bit(idx)))
+                status_packet.coordinate.values[idx] *= INCH_PER_MM;
+#endif
+            else
+                status_packet.coordinate.values[idx] *= INCH_PER_MM;
+        } while(idx);
+    } else if(gc_state.modal.diameter_mode)
+        status_packet.coordinate.values[X_AXIS] *= 2.0f;
+
 /*
     // Report realtime feed speed
     if(spindle->cap.variable) {
@@ -96,7 +159,6 @@ static void send_status_info (void *data)
 */
     status_packet.spindle_rpm = spindle->param->rpm_overridden;  //rpm should be changed to actual reading
 
-    status_packet.feed_rate = st_get_realtime_rate();
 
     if(msgtype || memcmp(&prev_status, &status_packet, offsetof(machine_status_packet_t, msgtype))) {
 
@@ -134,55 +196,28 @@ static void send_status_info (void *data)
 
 static void set_state (sys_state_t state)
 {
+    status_packet.machine_state = ffs(state);
     status_packet.machine_substate = state_get_substate();
 
-    switch (state) {
-        case STATE_ESTOP:
-        case STATE_ALARM:
-            {
-                status_packet.machine_state = MachineState_Alarm;
+    if(state & (STATE_ESTOP|STATE_ALARM)) {
+        char *alarm;
 
-                char *alarm;
-                if((alarm = (char *)alarms_get_description((alarm_code_t)status_packet.machine_substate))) {
-                    strncpy((char *)status_packet.msg, alarm, sizeof(status_packet.msg) - 1);
-                    if((alarm = strchr((char *)status_packet.msg, '.')))
-                        *(++alarm) = '\0';
-                    else
-                        status_packet.msg[sizeof(status_packet.msg) - 1] = '\0';
-                    msgtype = (msg_type_t)strlen((char *)status_packet.msg);
-                }
-            }
-            break;
-//        case STATE_ESTOP:
-//            status_packet.machine_state = MachineState_EStop;
-//            break;
-        case STATE_CYCLE:
-            status_packet.machine_state = MachineState_Cycle;
-            break;
-        case STATE_HOLD:
-            status_packet.machine_state = MachineState_Hold;
-            break;
-        case STATE_TOOL_CHANGE:
-            status_packet.machine_state = MachineState_ToolChange;
-            break;
-        case STATE_IDLE:
-            status_packet.machine_state = MachineState_Idle;
-            break;
-        case STATE_HOMING:
-            status_packet.machine_state = MachineState_Homing;
-            break;
-        case STATE_JOG:
-            status_packet.machine_state = MachineState_Jog;
-            break;
-        default:
-            status_packet.machine_state = MachineState_Other;
-            break;
+        status_packet.machine_state = SystemState_Alarm;
+
+        if((alarm = (char *)alarms_get_description((alarm_code_t)status_packet.machine_substate))) {
+            strncpy((char *)status_packet.msg, alarm, sizeof(status_packet.msg) - 1);
+            if((alarm = strchr((char *)status_packet.msg, '.')))
+                *(++alarm) = '\0';
+            else
+                status_packet.msg[sizeof(status_packet.msg) - 1] = '\0';
+            msgtype = (msg_type_t)strlen((char *)status_packet.msg);
+        }
     }
 }
 
 static void display_update_now (void)
 {
-    if(status_packet.address) {
+    if(status_packet.version) {
         task_delete(send_status_info, NULL);
         task_add_delayed(send_status_info, NULL, SEND_STATUS_NOW_DELAY); // wait a bit before updating in order not to spam the port
     }
@@ -254,6 +289,14 @@ static void onWCOChanged (void)
     do {
         idx--;
         wco.values[idx] = gc_get_offset(idx, false);
+        if(settings.flags.report_inches) {
+#if N_AXIS > 3
+            if(idx > Z_AXIS && !bit_istrue(settings.steppers.is_rotary.mask, bit(idx)))
+                wco.values[idx] *= INCH_PER_MM;
+            else
+#endif
+                wco.values[idx] *= INCH_PER_MM;
+        }
     } while(idx);
 
     memcpy(status_packet.msg, &wco, sizeof(machine_coords_t));
@@ -326,49 +369,12 @@ static message_code_t onFeedbackMessageReport (message_code_t message_code)
 }
 */
 
-static void add_reports (report_tracking_flags_t report)
-{
-    if(report.coolant)
-        status_packet.coolant_state = hal.coolant.get_state();
-
-    if(report.spindle) {
-        spindle_ptrs_t *spindle = spindle_get(0);
-        status_packet.spindle_state = spindle->get_state(spindle);
-    }
-
-    if(report.overrides) {
-        spindle_ptrs_t *spindle = spindle_get(0);
-        msgtype = MachineMsg_Overrides;
-        status_packet.feed_override = sys.override.feed_rate > 255 ? 255 : sys.override.feed_rate;
-        status_packet.spindle_override = spindle->param->override_pct > 255 ? 255 : spindle->param->override_pct;
-        status_packet.spindle_stop = sys.override.spindle_stop.value;
-    }
-
-    if(report.wco)
-        status_packet.current_wcs = gc_state.modal.g5x_offset.id;
-
-    if(report.homed) {
-        axes_signals_t homing = {sys.homing.mask ? sys.homing.mask : AXES_BITMASK};
-        status_packet.home_state.mask = sys.homing.mask & sys.homed.mask;
-        status_packet.machine_modes.homed = (homing.mask & sys.homed.mask) == homing.mask;
-    }
-
-    if(report.tlo_reference)
-        status_packet.machine_modes.tlo_referenced = sys.tlo_reference_set.mask != 0;
-
-    if(report.xmode)
-        status_packet.machine_modes.diameter = gc_state.modal.diameter_mode;
-
-    if(report.mpg_mode)
-        status_packet.machine_modes.mpg = sys.mpg_mode;
-}
-
-static void onRealtimeReportsAdded (report_tracking_flags_t report)
+ISR_CODE static void onRealtimeReportsAdded (report_tracking_flags_t report)
 {
     if(on_rt_reports_added)
         on_rt_reports_added(report);
 
-    add_reports(report);
+    rt_report.value |= report.value;
 }
 
 static void onReportHandlersInit (void)
@@ -389,12 +395,12 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("I2C Display", connected ? "0.13" : "0.13 (not connected)");
+        report_plugin("I2C Display", connected ? "0.14" : "0.14 (not connected)");
 }
 
 static void complete_setup (void *data)
 {
-    report_tracking_flags_t report = {
+    static const report_tracking_flags_t report = {
         .coolant = On,
         .spindle = On,
         .overrides = On,
@@ -405,9 +411,9 @@ static void complete_setup (void *data)
     };
 
     set_state(state_get());
-    add_reports(report);
+    rt_report.value = report.value;
 
-    status_packet.address = 0x01;
+    status_packet.version = 2;
     status_packet.msgtype = MachineMsg_None;
     status_packet.status_code = Status_OK;
     status_packet.machine_modes.mode = settings.mode;
@@ -439,10 +445,10 @@ void display_init (void)
         on_rt_reports_added = grbl.on_rt_reports_added;
         grbl.on_rt_reports_added = onRealtimeReportsAdded;
 
-        status_packet.address = 0;
-    #if N_AXIS == 3
+        status_packet.version = 0;
+#if N_AXIS == 3
         status_packet.coordinate.a = NAN;
-    #endif
+#endif
 
         // delay final setup until startup is complete
         task_run_on_startup(complete_setup, NULL);

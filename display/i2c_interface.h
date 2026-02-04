@@ -21,15 +21,13 @@
 
 #pragma once
 
-#include "grbl/gcode.h"
+#include "driver.h"
 
 #include <assert.h>
 
 #ifdef GRBL_ESP32
 #define static_assert _Static_assert
 #endif
-
-typedef uint8_t machine_state_t;
 
 typedef enum {
     MachineMsg_None = 0,
@@ -39,19 +37,8 @@ typedef enum {
     MachineMsg_ClearMessage = 255,
 } __attribute__ ((__packed__)) msg_type_t;
 
-enum machine_state_t {
-    MachineState_Alarm = 1,
-    MachineState_Cycle = 2,
-    MachineState_Hold = 3,
-    MachineState_ToolChange = 4,
-    MachineState_Idle = 5,
-    MachineState_Homing = 6,
-    MachineState_Jog = 7,
-    MachineState_Other = 254
-};
-
 static_assert(sizeof(msg_type_t) == 1, "msg_type_t too large for I2C display interface");
-static_assert(sizeof(machine_state_t) == 1, "machine_state_t too large for I2C display interface");
+static_assert(sizeof(system_state_t) == 1, "machine_state_t too large for I2C display interface");
 static_assert(sizeof(coord_system_id_t) == 1, "coord_system_id_t too large for I2C display interface");
 
 typedef union {
@@ -65,11 +52,13 @@ typedef union {
 typedef union {
     uint8_t value;
     struct {
-        uint8_t diameter       :1,
-                mpg            :1,
-                homed          :1,
-                tlo_referenced :1,
-                mode           :3; // from machine_mode_t setting
+        uint8_t diameter         :1,
+                mpg              :1,
+                homed            :1,
+                tlo_referenced   :1,
+                mode             :2, // from machine_mode_t setting
+                reports_imperial :1, // $13=1
+                imperial         :1; // G20 active
     };
 } machine_modes_t;
 
@@ -84,8 +73,8 @@ typedef union {
 } machine_coords_t;
 
 typedef struct {
-    uint8_t address;
-    machine_state_t machine_state;
+    uint8_t version;
+    system_state_t machine_state;
     uint8_t machine_substate;
     axes_signals_t home_state;
     uint8_t feed_override; // size changed in latest version!
@@ -97,8 +86,8 @@ typedef struct {
     coolant_state_t coolant_state;
     jog_mode_t jog_mode;
     control_signals_t signals;
-    float jog_stepsize;
-    coord_system_id_t current_wcs;  //active WCS or MCS modal state
+    float jog_stepsize; // always mm
+    coord_system_id_t current_wcs;  // active WCS or MCS modal state
     axes_signals_t limits;
     status_code_t status_code;
     machine_modes_t machine_modes;
