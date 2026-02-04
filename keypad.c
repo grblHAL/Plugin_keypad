@@ -34,7 +34,7 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
 
-#define KEYPAD_VERSION "1.43"
+#define KEYPAD_VERSION "1.44"
 
 typedef struct {
     char buf[KEYBUF_SIZE];
@@ -183,7 +183,7 @@ static void keypad_process_keypress (void *data)
 
             case CMD_CYCLE_START:                       // Cycle start
                 if(grbl.enqueue_realtime_command(CMD_CYCLE_START))
-                    sys.report.cycle_start = settings.status_report.pin_state;
+                    report_add_realtime(Report_CycleStart);
                 break;
 
             case CMD_CYCLE_START_LEGACY:                // Cycle start
