@@ -142,8 +142,13 @@ typedef struct {
     macro_setting_t macro[N_MACROS];
 } macro_settings_t;
 
+typedef struct {
+    char *command;
+    bool by_mcode;
+} macro_data_t;
+
 static uint8_t n_macros = N_MACROS;
-static char *command = NULL, format[8], max_length[5];
+static char format[8], max_length[5];
 static nvs_address_t nvs_address;
 static macro_settings_t plugin_settings;
 
@@ -154,6 +159,7 @@ static on_macro_return_ptr on_macro_return = NULL;
 static status_message_ptr status_message = NULL;
 static driver_reset_ptr driver_reset;
 static io_stream_t active_stream;
+static macro_data_t macro = {};
 
 #if MACROS_ENABLE & 0x01
 
@@ -190,11 +196,11 @@ static status_code_t trap_status_messages (status_code_t status_code);
 static void end_macro (void)
 {
     if(hal.stream.read == get_macro_char)
-        memcpy(&hal.stream, &active_stream, sizeof(io_stream_t));
+        memcpy(&hal.stream, &active_stream, offsetof(io_stream_t, report));
 
-    if(command) {
+    if(macro.command) {
 
-        command = NULL;
+        macro.command = NULL;
 
         grbl.on_macro_return = on_macro_return;
         on_macro_return = NULL;
@@ -220,9 +226,11 @@ static int32_t get_macro_char (void)
 {
     static bool eol_ok = false;
 
-    if(*command == '\0') {          // End of macro?
+    if(*macro.command == '\0') {    // End of macro?
         if(eol_ok) {
             end_macro();            // Done
+            if(macro.by_mcode)
+                grbl.report.status_message(gc_state.last_error);
             return SERIAL_NO_DATA;  // ...
         }
         eol_ok = true;
@@ -230,7 +238,7 @@ static int32_t get_macro_char (void)
         return ASCII_LF;    // Return a linefeed if the last character was not a linefeed.
     }
 
-    char c = *command++;    // Get next character.
+    char c = *macro.command++;    // Get next character.
 
     if((eol_ok = c == '|')) // If character is vertical bar
         c = ASCII_LF;       // return a linefeed character.
@@ -262,10 +270,11 @@ static status_code_t trap_status_messages (status_code_t status_code)
 // Actual start of macro execution.
 static void run_macro (void *cmd)
 {
-    if(!(*((char *)cmd) == '\0' || *((char *)cmd) == 0xFF) && hal.stream.read != get_macro_char && state_get() == STATE_IDLE) {
+    macro_data_t *m = (macro_data_t *)cmd;
 
-        command = (char *)cmd;
+    if(!(*m->command == '\0' || *m->command == 0xFF) && hal.stream.read != get_macro_char && state_get() == STATE_IDLE) {
 
+        memcpy(&macro, m, sizeof(macro_data_t));                    // Copy macro data for execution.
         memcpy(&active_stream, &hal.stream, sizeof(io_stream_t));   // Redirect input stream to read from the macro instead
         hal.stream.read = get_macro_char;                           // the active stream. This ensures that input streams are not mingled.
         hal.stream.file = NULL;                                     // Input stream is not file based.
@@ -283,8 +292,13 @@ static status_code_t macro_execute (macro_id_t macro, parameter_words_t args, ui
     bool ok = false;
 
     if((ok = macro <= N_MACROS && !(*plugin_settings.macro[macro - 1].data == '\0' || *plugin_settings.macro[macro - 1].data == 0xFF))) {
-        if(state_get() == STATE_IDLE)
-            run_macro(plugin_settings.macro[macro - 1].data);
+        if(state_get() == STATE_IDLE) {
+            macro_data_t macro_data = {
+                .by_mcode = true,
+                .command = plugin_settings.macro[macro - 1].data
+            };
+            run_macro(&macro_data);
+        }
     }
 
     return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro, args, repeats) : Status_Unhandled);
@@ -325,6 +339,8 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
 
 ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
 {
+    static macro_data_t macro_data = {};
+
     if(!is_high && macro_id == 0) {
 
         // Determine macro to run from port number
@@ -335,8 +351,10 @@ ISR_CODE static void ISR_FUNC(execute_macro)(uint8_t irq_port, bool is_high)
 
         if(plugin_settings.macro[idx].action_idx)
             grbl.enqueue_realtime_command(action[plugin_settings.macro[idx].action_idx]);
-        else if(state_get() == STATE_IDLE)
-            task_add_immediate(run_macro, plugin_settings.macro[idx].data);  // register run_macro function to be called from foreground process.
+        else if(state_get() == STATE_IDLE) {
+            macro_data.command = plugin_settings.macro[idx].data;
+            task_add_immediate(run_macro, &macro_data);  // register run_macro function to be called from foreground process.
+        }
     }
 }
 
@@ -390,8 +408,10 @@ static bool keypress_preview (const char c, uint_fast16_t state)
 #endif
     }
 
-    if(macro != -1)
-        run_macro(plugin_settings.macro[macro].data);
+    if(macro != -1) {
+        macro_data_t macro_data = { .command = plugin_settings.macro[macro].data };
+        run_macro(&macro_data);
+    }
 
     return macro != -1 || (on_keypress_preview && on_keypress_preview(c, state));
 }
@@ -686,7 +706,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.19");
+        report_plugin("Macros", "0.20");
 }
 
 FLASHMEM void macros_init (void)
