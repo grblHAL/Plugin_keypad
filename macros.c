@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2021-2025 Terje Io
+  Copyright (c) 2021-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -287,7 +287,7 @@ static void run_macro (void *cmd)
     }
 }
 
-static status_code_t macro_execute (macro_id_t macro, parameter_words_t args, uint32_t repeats)
+static status_code_t macro_execute (macro_id_t macro, line_number_t line_number, parameter_words_t args, uint32_t repeats)
 {
     bool ok = false;
 
@@ -301,7 +301,7 @@ static status_code_t macro_execute (macro_id_t macro, parameter_words_t args, ui
         }
     }
 
-    return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro, args, repeats) : Status_Unhandled);
+    return ok ? Status_OK : (on_macro_execute ? on_macro_execute(macro, line_number, args, repeats) : Status_Unhandled);
 }
 
 static user_mcode_type_t mcode_check (user_mcode_t mcode)
@@ -324,7 +324,7 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
 
     if(handled && state != STATE_CHECK_MODE) {
         protocol_buffer_synchronize();
-        macro_execute(gc_block->user_mcode - Macro_Execute0 + 1, (parameter_words_t){0}, 1);
+        macro_execute(gc_block->user_mcode - Macro_Execute0 + 1, 0, (parameter_words_t){0}, 1);
     }
 
     if(!handled && user_mcode.execute)
@@ -706,7 +706,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.20");
+        report_plugin("Macros", "0.21");
 }
 
 FLASHMEM void macros_init (void)
