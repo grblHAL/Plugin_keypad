@@ -124,7 +124,11 @@ static void send_status_info (void *data)
             status_packet.machine_modes.mpg = sys.mpg_mode;
     }
 
+    probe_state_t probe_state = hal.probe.get_state();
+
     status_packet.signals = hal.control.get_state();
+    status_packet.signals.probe_triggered = probe_state.triggered;
+    status_packet.signals.probe_disconnected = !probe_state.connected;
     status_packet.limits = limit_signals_merge(hal.limits.get_state());
     status_packet.feed_rate = st_get_realtime_rate();
     status_packet.machine_modes.imperial = gc_state.modal.units_imperial;
@@ -395,7 +399,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("I2C Display", connected ? "0.14" : "0.14 (not connected)");
+        report_plugin("I2C Display", connected ? "0.15" : "0.15 (not connected)");
 }
 
 static void complete_setup (void *data)
