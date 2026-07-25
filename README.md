@@ -25,9 +25,9 @@ Character to action map:
 | `X`      | Unlock                                        |
 | `0x8B`   | Enable MPG full control<sup>1</sup>           |
 | `0x85`   | Cancel jog motion<sup>2</sup>                 |
-| `0`      | Enable step mode jogging                      |
+| `0`      | Enable fast mode jogging                      |
 | `1`      | Enable slow jogging mode                      |
-| `2`      | Enable fast jogging mode                      |
+| `2`      | Enable step jogging mode                      |
 | `h`      | Select next jog mode                          |
 | `m`      | Select next jog speed or step distance factor |
 | `H`      | Home machine                                  |
@@ -91,4 +91,4 @@ An app providing input such as [this implementation](https://github.com/terjeio/
 Driver (and app) must support I2C communication and a keypad strobe interrupt signal or have a free UART port depending on the mode selected.
 
 ---
-2024-07-30
+2026-07-25
