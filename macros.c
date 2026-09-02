@@ -83,6 +83,7 @@
 #endif
 
 #define MACRO_OPTS { .subgroups = Off, .increment = 1 }
+#define MACRO_OPTS_REBOOT { .reboot_required = On, .subgroups = Off, .increment = 1 }
 
 #if MACROS_AUX_EXPLICIT
 
@@ -471,16 +472,16 @@ static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t
 PROGMEM static const setting_detail_t macro_settings[] = {
     { Setting_MacroBase, Group_UserSettings, "Macro ?", NULL, Format_String, format, "0", max_length, Setting_NonCoreFn, macro_set, macro_get, NULL, MACRO_OPTS },
 #if MACROS_ENABLE & 0x01
-    { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Decimal, "-#0", "-1", d_in.port_maxs, Setting_NonCoreFn, set_port, get_port, is_setting_available, MACRO_OPTS },
-    { Setting_ButtonActionBase, Group_UserSettings, "Button ? action", NULL, Format_RadioButtons, BUTTON_ACTIONS, NULL, NULL, Setting_NonCoreFn, macro_set_int, macro_get_int, NULL, MACRO_OPTS },
+    { Setting_MacroPortBase, Group_AuxPorts, "Macro ? port", NULL, Format_Decimal, "-#0", "-1", d_in.port_maxs, Setting_NonCoreFn, set_port, get_port, is_setting_available, MACRO_OPTS_REBOOT },
+    { Setting_ButtonActionBase, Group_UserSettings, "Button ? action", NULL, Format_RadioButtons, BUTTON_ACTIONS, NULL, NULL, Setting_NonCoreFn, macro_set_int, macro_get_int, NULL, MACRO_OPTS }
 #endif
 };
 
 PROGMEM static const setting_descr_t macro_settings_descr[] = {
-    { Setting_MacroBase, "Macro content, separate blocks (lines) with the vertical bar character |." },
+    { Setting_MacroBase, "Macro ? content, separate blocks (lines) with the vertical bar character |." },
 #if MACROS_ENABLE & 0x01
-    { Setting_MacroPortBase, "Aux port number to use for the trigger pin input. Set to -1 to disable." SETTINGS_HARD_RESET_REQUIRED },
-    { Setting_ButtonActionBase, "Action to take when the pin is triggered."  },
+    { Setting_MacroPortBase, "Aux port number to use as macro ? trigger input. Set to -1 to disable." },
+    { Setting_ButtonActionBase, "Action to take when macro ? input is triggered."  }
 #endif
 };
 
@@ -681,12 +682,15 @@ static void macro_settings_load (void)
 
 static bool macro_settings_iterator (const setting_detail_t *setting, setting_output_ptr callback, void *data)
 {
+    bool ok = true;
     uint_fast16_t idx;
 
-    for(idx = 0; idx < n_macros; idx++)
-        callback(setting, idx, data);
+    for(idx = 0; idx < n_macros; idx++) {
+        if(!(ok = callback(setting, idx, data)))
+            break;
+    }
 
-    return true;
+    return ok;
 }
 
 static setting_id_t macro_settings_normalize (setting_id_t id)
@@ -697,7 +701,7 @@ static setting_id_t macro_settings_normalize (setting_id_t id)
              || (id > Setting_ButtonActionBase && id < Setting_ButtonActionBase + N_MACROS)
 #endif
               ? (setting_id_t)(id - (id % 10))
-              : id;
+              : (setting_id_t)0;
 }
 
 // Add info about our plugin to the $I report.
@@ -706,7 +710,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.21");
+        report_plugin("Macros", "0.23");
 }
 
 FLASHMEM void macros_init (void)

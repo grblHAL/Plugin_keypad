@@ -60,6 +60,7 @@ Character to action map:
 | `0x95`   | Restore rapids override value to 100%         |
 | `0x96`   | Set rapids override to 50%                    |
 | `0x97`   | Set rapids override to 25%                    |
+| `0x98`   | Set rapids override to 5% (from v1.45)        |
 | `K`      | Restore spindle RPM override value to 100%    |
 | `0x99`   | Restore spindle RPM override value to 100%    |
 | `k`      | Increase spindle RPM override value 10%       |
@@ -91,4 +92,4 @@ An app providing input such as [this implementation](https://github.com/terjeio/
 Driver (and app) must support I2C communication and a keypad strobe interrupt signal or have a free UART port depending on the mode selected.
 
 ---
-2026-07-25
+2026-09-01

@@ -3,7 +3,7 @@
 
   Part of grblHAL keypad plugins
 
-  Copyright (c) 2017-2025 Terje Io
+  Copyright (c) 2017-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -34,7 +34,7 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
 
-#define KEYPAD_VERSION "1.44"
+#define KEYPAD_VERSION "1.45"
 
 typedef struct {
     char buf[KEYBUF_SIZE];
@@ -268,6 +268,7 @@ static void keypad_process_keypress (void *data)
             case CMD_OVERRIDE_RAPID_RESET:
             case CMD_OVERRIDE_RAPID_MEDIUM:
             case CMD_OVERRIDE_RAPID_LOW:
+            case CMD_OVERRIDE_RAPID_EXTRA_LOW:
                 enqueue_feed_override(keycode);
                 break;
 
