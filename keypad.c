@@ -34,7 +34,7 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
 
-#define KEYPAD_VERSION "1.45"
+#define KEYPAD_VERSION "1.46"
 
 typedef struct {
     char buf[KEYBUF_SIZE];
@@ -54,16 +54,29 @@ static jogdata_t jogdata = {
 static keybuffer_t keybuf = {0};
 static uint32_t nvs_address;
 static on_report_options_ptr on_report_options;
+static bool connected = false;
+#if KEYPAD_ENABLE && MPG_ENABLE && defined(MPG_STREAM) && MPG_STREAM == KEYPAD_STREAM
+static on_mpg_registered_ptr on_mpg_registered;
+#endif
 
 keypad_t keypad = {0};
 
+FLASHMEM static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
+{
+#if KEYPAD_ENABLE == 1
+    return true;
+#else
+    return connected;
+#endif
+}
+
 PROGMEM static const setting_detail_t keypad_settings[] = {
-    { Setting_JogStepSpeed, Group_Jogging, "Step jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.step_speed, NULL, NULL },
-    { Setting_JogSlowSpeed, Group_Jogging, "Slow jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_speed, NULL, NULL },
-    { Setting_JogFastSpeed, Group_Jogging, "Fast jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_speed, NULL, NULL },
-    { Setting_JogStepDistance, Group_Jogging, "Step jog distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_NonCore, &jog.step_distance, NULL, NULL },
-    { Setting_JogSlowDistance, Group_Jogging, "Slow jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_distance, NULL, NULL },
-    { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, NULL }
+    { Setting_JogStepSpeed, Group_Jogging, "Step jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.step_speed, NULL, is_setting_available },
+    { Setting_JogSlowSpeed, Group_Jogging, "Slow jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_speed, NULL, is_setting_available },
+    { Setting_JogFastSpeed, Group_Jogging, "Fast jog speed", "mm/min", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_speed, NULL, is_setting_available },
+    { Setting_JogStepDistance, Group_Jogging, "Step jog distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_NonCore, &jog.step_distance, NULL, is_setting_available },
+    { Setting_JogSlowDistance, Group_Jogging, "Slow jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.slow_distance, NULL, is_setting_available },
+    { Setting_JogFastDistance, Group_Jogging, "Fast jog distance", "mm", Format_Decimal, "###0.0", NULL, NULL, Setting_NonCore, &jog.fast_distance, NULL, is_setting_available }
 };
 
 PROGMEM static const setting_descr_t keypad_settings_descr[] = {
@@ -75,12 +88,12 @@ PROGMEM static const setting_descr_t keypad_settings_descr[] = {
     { Setting_JogFastDistance, "Jog distance before automatic stop." }
 };
 
-static void keypad_settings_save (void)
+FLASHMEM static void keypad_settings_save (void)
 {
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
 }
 
-static void keypad_settings_restore (void)
+FLASHMEM static void keypad_settings_restore (void)
 {
     jog.step_speed    = 100.0f;
     jog.slow_speed    = 600.0f;
@@ -92,7 +105,7 @@ static void keypad_settings_restore (void)
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&jog, sizeof(jog_settings_t), true);
 }
 
-static void keypad_settings_load (void)
+FLASHMEM static void keypad_settings_load (void)
 {
     if(hal.nvs.memcpy_from_nvs((uint8_t *)&jog, nvs_address, sizeof(jog_settings_t), true) != NVS_TransferResult_OK)
         keypad_settings_restore();
@@ -127,7 +140,7 @@ static char keypad_get_keycode (void)
 }
 
 // BE WARNED: this function may be dangerous to use...
-static char *strrepl (char *str, int c, char *str3)
+FLASHMEM static char *strrepl (char *str, int c, char *str3)
 {
     char tmp[30];
     char *s = strrchr(str, c);
@@ -142,12 +155,12 @@ static char *strrepl (char *str, int c, char *str3)
     return str;
 }
 
-static void jog_command (char *cmd, char *to)
+FLASHMEM static void jog_command (char *cmd, char *to)
 {
     strcat(strcpy(cmd, "$J=G91G21"), to);
 }
 
-static void keypad_process_keypress (void *data)
+FLASHMEM static void keypad_process_keypress (void *data)
 {
     bool addedGcode, jogCommand = false;
     char command[35] = "", keycode = keypad_get_keycode();
@@ -192,7 +205,7 @@ static void keypad_process_keypress (void *data)
 
             case CMD_MPG_MODE_TOGGLE:                   // Toggle MPG mode
                 if(hal.driver_cap.mpg_mode)
-                    stream_mpg_enable(hal.stream.type != StreamType_MPG);
+                    stream_mpg_enable(!hal.stream.state.is_mpg);
                 break;
 
             case '0':
@@ -402,17 +415,15 @@ static void keypad_process_keypress (void *data)
     }
 }
 
-#if KEYPAD_ENABLE == 1
-
-static bool connected;
-
-static void onReportOptions (bool newopt)
+FLASHMEM static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
         report_plugin("Keypad", connected ? KEYPAD_VERSION : KEYPAD_VERSION " (not connected)");
 }
+
+#if KEYPAD_ENABLE == 1
 
 ISR_CODE static void ISR_FUNC(i2c_enqueue_keycode)(char c)
 {
@@ -447,7 +458,7 @@ ISR_CODE bool ISR_FUNC(keypad_strobe_handler)(uint_fast8_t id, bool keydown)
     return true;
 }
 
-bool keypad_init (void)
+FLASHMEM bool keypad_init (void)
 {
     hal.delay_ms(510, NULL);
 
@@ -468,14 +479,6 @@ bool keypad_init (void)
 }
 
 #else // KEYPAD_ENABLE == 2
-
-static void onReportOptions (bool newopt)
-{
-    on_report_options(newopt);
-
-    if(!newopt)
-        report_plugin("Keypad", KEYPAD_VERSION);
-}
 
 static ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(uint8_t c)
 {
@@ -505,14 +508,31 @@ static ISR_CODE bool ISR_FUNC(keypad_enqueue_keycode)(uint8_t c)
     return true;
 }
 
-bool keypad_init (void)
+#if MPG_ENABLE && defined(MPG_STREAM) && MPG_STREAM == KEYPAD_STREAM
+
+FLASHMEM static void onMpgRegistered (io_stream_t *stream, bool rx_only)
+{
+    if(on_mpg_registered)
+        on_mpg_registered(stream, rx_only);
+
+    if((connected = stream->instance == KEYPAD_STREAM)) {
+        stream->set_enqueue_rt_handler(keypad_enqueue_keycode);
+        stream_set_description(stream, "MPG & Keypad");
+    }
+}
+
+#endif
+
+FLASHMEM bool keypad_init (void)
 {
     if((nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
 
 #if MPG_ENABLE && defined(MPG_STREAM) && MPG_STREAM == KEYPAD_STREAM
-        if((hal.driver_cap.mpg_mode = stream_mpg_register(stream_open_instance(KEYPAD_STREAM, 115200, NULL, "MPG & Keypad"), false, keypad_enqueue_keycode))) {
+        if(true) {
+            on_mpg_registered = grbl.on_mpg_registered;
+            grbl.on_mpg_registered = onMpgRegistered;
 #else
-        if(stream_open_instance(KEYPAD_STREAM, 115200, keypad_enqueue_keycode, "Keypad")) {
+        if((connected = stream_open_instance(KEYPAD_STREAM, 115200, keypad_enqueue_keycode, "Keypad"))) {
 #endif
             on_report_options = grbl.on_report_options;
             grbl.on_report_options = onReportOptions;
