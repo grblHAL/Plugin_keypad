@@ -403,7 +403,7 @@ FLASHMEM static void keypad_process_keypress (void *data)
                         break;
                 }
             } else if(command[1] == 'X' || command[1] == 'H') {
-                system_execute_line(command);
+                system_execute_line(command, hal.stream.write);
                 return;
             }
         }
