@@ -34,7 +34,7 @@
 #include "grbl/nvs_buffer.h"
 #include "grbl/state_machine.h"
 
-#define KEYPAD_VERSION "1.46"
+#define KEYPAD_VERSION "1.47"
 
 typedef struct {
     char buf[KEYBUF_SIZE];
@@ -301,6 +301,7 @@ FLASHMEM static void keypad_process_keypress (void *data)
                 break;
 
             case CMD_RESET:
+            case CMD_SOFT_ESTOP:
             case CMD_SAFETY_DOOR:
             case CMD_STATUS_REPORT:
             case CMD_STATUS_REPORT_LEGACY:
