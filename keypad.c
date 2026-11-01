@@ -463,20 +463,22 @@ FLASHMEM bool keypad_init (void)
 {
     hal.delay_ms(510, NULL);
 
-    if((connected = i2c_start().ok && i2c_probe(KEYPAD_I2CADDR) &&
-        hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler) &&
-         (nvs_address = nvs_alloc(sizeof(jog_settings_t))))) {
+    if((nvs_address = nvs_alloc(sizeof(jog_settings_t)))) {
 
-        settings_register(&setting_details);
+        if((connected = i2c_start().ok && i2c_probe(KEYPAD_I2CADDR) &&
+            hal.irq_claim(IRQ_I2C_Strobe, 0, keypad_strobe_handler))) {
 
-        if(keypad.on_jogmode_changed)
-            keypad.on_jogmode_changed(jogdata.mode);
+            settings_register(&setting_details);
+
+            if(keypad.on_jogmode_changed)
+                keypad.on_jogmode_changed(jogdata.mode);
+        }
+
+        on_report_options = grbl.on_report_options;
+        grbl.on_report_options = onReportOptions;
     }
 
-    on_report_options = grbl.on_report_options;
-    grbl.on_report_options = onReportOptions;
-
-    return nvs_address != 0;
+    return connected;
 }
 
 #else // KEYPAD_ENABLE == 2

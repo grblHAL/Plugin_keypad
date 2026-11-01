@@ -423,7 +423,7 @@ static bool keypress_preview (const char c, uint_fast16_t state)
 // Potentially used by senders for settings UI.
 
 PROGMEM static const setting_group_detail_t macro_groups [] = {
-    { Group_Root, Group_UserSettings, "Macros"}
+    { Group_Root, Group_UserSettings, "Macros" }
 };
 
 static status_code_t macro_set (setting_id_t id, char *value)
@@ -494,13 +494,14 @@ static void macro_settings_save (void)
 // Restore default settings and write to non volatile storage (NVS).
 static void macro_settings_restore (void)
 {
-    uint_fast8_t idx = n_macros;
+    uint_fast8_t idx = N_MACROS;
 
     memset(&plugin_settings, 0xFF, sizeof(macro_settings_t));
 
 #if !MACROS_AUX_EXPLICIT && (MACROS_ENABLE & 0x01)
     uint_fast8_t ports = min(n_macros, d_in.n_ports);
-    plugin_settings.macro[ports - 1].port = d_in.get_next(&d_in, IOPORT_UNASSIGNED, label[ports - 1], pin_caps);
+    if(ports)
+        plugin_settings.macro[ports - 1].port = d_in.get_next(&d_in, IOPORT_UNASSIGNED, label[ports - 1], pin_caps);
 #endif
 
     // Register empty macro strings and set default port numbers if mapping is available.
@@ -544,10 +545,40 @@ static void macro_settings_restore (void)
 #if defined(MACRO_4_AUXIN) || defined(MACRO_4_BUTTONACTION)
             case 3:
   #ifdef MACRO_4_AUXIN
-                plugin_settings.macro[idx].port = MACRO_41_AUXIN;
+                plugin_settings.macro[idx].port = MACRO_4_AUXIN;
   #endif
   #ifdef MACRO_4_BUTTONACTION
                 plugin_settings.macro[idx].action_idx = MACRO_4_BUTTONACTION;
+  #endif
+                break;
+#endif
+#if defined(MACRO_5_AUXIN) || defined(MACRO_5_BUTTONACTION)
+            case 4:
+  #ifdef MACRO_5_AUXIN
+                plugin_settings.macro[idx].port = MACRO_5_AUXIN;
+  #endif
+  #ifdef MACRO_5_BUTTONACTION
+                plugin_settings.macro[idx].action_idx = MACRO_5_BUTTONACTION;
+  #endif
+                break;
+#endif
+#if defined(MACRO_6_AUXIN) || defined(MACRO_6_BUTTONACTION)
+            case 5:
+  #ifdef MACRO_6_AUXIN
+                plugin_settings.macro[idx].port = MACRO_6_AUXIN;
+  #endif
+  #ifdef MACRO_6_BUTTONACTION
+                plugin_settings.macro[idx].action_idx = MACRO_6_BUTTONACTION;
+  #endif
+                break;
+#endif
+#if defined(MACRO_7_AUXIN) || defined(MACRO_7_BUTTONACTION)
+            case 6:
+  #ifdef MACRO_7_AUXIN
+                plugin_settings.macro[idx].port = MACRO_7_AUXIN;
+  #endif
+  #ifdef MACRO_7_BUTTONACTION
+                plugin_settings.macro[idx].action_idx = MACRO_7_BUTTONACTION;
   #endif
                 break;
 #endif
@@ -598,32 +629,54 @@ static void macro_settings_load (void)
     static macro_pin_t pin_map[] = {
  #ifdef MACRO_1_AUXIN_PIN
   #ifdef MACRO_1_AUXIN_PORT
-        { .pin = MACRO_1_AUXIN_PIN, .port = MACRO_1_AUXIN_PORT,  },
+        { .pin = MACRO_1_AUXIN_PIN, .port = (void *)MACRO_1_AUXIN_PORT, },
   #else
         { .pin = MACRO_1_AUXIN_PIN, .port = NULL },
   #endif
  #endif
  #if N_MACROS > 1 && defined(MACRO_2_AUXIN_PIN)
   #ifdef MACRO_2_AUXIN_PORT
-        { .pin = MACRO_2_AUXIN_PIN, .port = MACRO_2_AUXIN_PORT,  },
+        { .pin = MACRO_2_AUXIN_PIN, .port = (void *)MACRO_2_AUXIN_PORT, },
   #else
         { .pin = MACRO_2_AUXIN_PIN, .port = NULL },
   #endif
  #endif
  #if N_MACROS > 2 && defined(MACRO_3_AUXIN_PIN)
   #ifdef MACRO_3_AUXIN_PORT
-        { .pin = MACRO_3_AUXIN_PIN, .port = MACRO_3_AUXIN_PORT,  },
+        { .pin = MACRO_3_AUXIN_PIN, .port = (void *)MACRO_3_AUXIN_PORT, },
   #else
         { .pin = MACRO_3_AUXIN_PIN, .port = NULL },
   #endif
  #endif
  #if N_MACROS > 3 && defined(MACRO_4_AUXIN_PIN)
   #ifdef MACRO_4_AUXIN_PORT
-        { .pin = MACRO_4_AUXIN_PIN, .port = MACRO_4_AUXIN_PORT,  },
+        { .pin = MACRO_4_AUXIN_PIN, .port = (void *)MACRO_4_AUXIN_PORT, },
   #else
         { .pin = MACRO_4_AUXIN_PIN, .port = NULL },
   #endif
  #endif
+ #if N_MACROS > 4 && defined(MACRO_5_AUXIN_PIN)
+  #ifdef MACRO_5_AUXIN_PORT
+       { .pin = MACRO_5_AUXIN_PIN, .port = (void *)MACRO_5_AUXIN_PORT, },
+  #else
+       { .pin = MACRO_5_AUXIN_PIN, .port = NULL },
+  #endif
+ #endif
+ #if N_MACROS > 5 && defined(MACRO_6_AUXIN_PIN)
+  #ifdef MACRO_6_AUXIN_PORT
+       { .pin = MACRO_6_AUXIN_PIN, .port = (void *)MACRO_6_AUXIN_PORT, },
+  #else
+       { .pin = MACRO_6_AUXIN_PIN, .port = NULL },
+  #endif
+ #endif
+ #if N_MACROS > 6 && defined(MACRO_7_AUXIN_PIN)
+  #ifdef MACRO_7_AUXIN_PORT
+        { .pin = MACRO_7_AUXIN_PIN, .port = (void *)MACRO_7_AUXIN_PORT, },
+  #else
+        { .pin = MACRO_7_AUXIN_PIN, .port = NULL },
+  #endif
+ #endif
+
     };
 
     n_explicit = sizeof(pin_map) / sizeof(macro_pin_t);
@@ -686,6 +739,8 @@ static bool macro_settings_iterator (const setting_detail_t *setting, setting_ou
     uint_fast16_t idx;
 
     for(idx = 0; idx < n_macros; idx++) {
+        if(setting->id == Setting_MacroPortBase && !is_setting_available(setting, idx))
+            continue;
         if(!(ok = callback(setting, idx, data)))
             break;
     }
@@ -710,7 +765,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Macros", "0.23");
+        report_plugin("Macros", "0.24");
 }
 
 FLASHMEM void macros_init (void)
