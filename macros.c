@@ -739,8 +739,10 @@ static bool macro_settings_iterator (const setting_detail_t *setting, setting_ou
     uint_fast16_t idx;
 
     for(idx = 0; idx < n_macros; idx++) {
+#if MACROS_ENABLE & 0x01
         if(setting->id == Setting_MacroPortBase && !is_setting_available(setting, idx))
             continue;
+#endif
         if(!(ok = callback(setting, idx, data)))
             break;
     }
