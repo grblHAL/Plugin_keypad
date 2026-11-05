@@ -142,11 +142,7 @@ static void send_status_info (void *data)
         do {
             if(--idx == X_AXIS && gc_state.modal.diameter_mode)
                 status_packet.coordinate.values[idx] *= (INCH_PER_MM * 2.0f);
-#if N_AXIS > 3
-            else if(idx > Z_AXIS && !bit_istrue(settings.steppers.is_rotary.mask, bit(idx)))
-                status_packet.coordinate.values[idx] *= INCH_PER_MM;
-#endif
-            else
+            else if(!bit_istrue(settings.steppers.is_rotary.mask, bit(idx)))
                 status_packet.coordinate.values[idx] *= INCH_PER_MM;
         } while(idx);
     } else if(gc_state.modal.diameter_mode)
