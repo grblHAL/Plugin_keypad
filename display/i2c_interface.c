@@ -83,7 +83,7 @@ static void send_status_info (void *data)
         status_packet.coordinate.values[idx] -= gc_get_offset(idx, false);
     } while(idx);
 
-    spindle_ptrs_t *spindle = spindle_get(0);
+    spindle_ptrs_t *spindle = spindle_get(-1);
 
     if((report.value = rt_report.value)) {
 
@@ -92,13 +92,10 @@ static void send_status_info (void *data)
         if(report.coolant)
             status_packet.coolant_state = hal.coolant.get_state();
 
-        if(report.spindle) {
-            spindle_ptrs_t *spindle = spindle_get(0);
+        if(report.spindle)
             status_packet.spindle_state = spindle->get_state(spindle);
-        }
 
         if(report.overrides) {
-            spindle_ptrs_t *spindle = spindle_get(0);
             msgtype = MachineMsg_Overrides;
             status_packet.feed_override = sys.override.feed_rate > 255 ? 255 : sys.override.feed_rate;
             status_packet.spindle_override = spindle->param->override_pct > 255 ? 255 : spindle->param->override_pct;
@@ -399,7 +396,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("I2C Display", connected ? "0.15" : "0.15 (not connected)");
+        report_plugin("I2C Display", connected ? "0.16" : "0.16 (not connected)");
 }
 
 static void complete_setup (void *data)
